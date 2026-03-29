@@ -163,6 +163,140 @@ docker run -d \
   mekayelanik/gitnexus-mcp:stable
 ```
 
+### Full-Featured Docker Compose (GPU + HTTPS + Wiki + Auth)
+
+```yaml
+services:
+  gitnexus-mcp:
+    image: mekayelanik/gitnexus-mcp:stable
+    container_name: gitnexus-mcp
+    restart: unless-stopped
+    ports:
+      - "8010:8010"   # MCP endpoint (HAProxy)
+      - "4747:4747"   # Web UI
+    volumes:
+      - /path/to/your/repos:/data:rw
+      - /path/to/certs:/etc/haproxy/certs:ro   # TLS certificates
+    environment:
+      # Core
+      - PORT=8010
+      - INTERNAL_PORT=38011
+      - WEB_UI_PORT=4747
+      - PUID=1000
+      - PGID=1000
+      - TZ=Asia/Dhaka
+      - NODE_ENV=production
+      # MCP Transport (SHTTP, SSE, or WS)
+      - PROTOCOL=SHTTP
+      # Security
+      - API_KEY=replace-with-a-strong-secret
+      - CORS=*
+      - ENABLE_HTTPS=true
+      - TLS_CERT_PATH=/etc/haproxy/certs/server.crt
+      - TLS_KEY_PATH=/etc/haproxy/certs/server.key
+      - TLS_MIN_VERSION=TLSv1.3
+      - HTTP_VERSION_MODE=auto
+      # Repository Analysis
+      - DATA_DIR=/data
+      - ANALYZE_FORCE=false
+      - ANALYZE_SKILLS=true
+      - ANALYZE_EMBEDDINGS=true
+      - ANALYZE_VERBOSE=false
+      # Wiki Generation
+      - WIKI_ENABLED=true
+      - OPENAI_API_KEY=sk-your-key-here
+      - WIKI_MODEL=gpt-4o-mini
+      # Web UI
+      - ENABLE_WEB_UI=true
+    # NVIDIA GPU (optional - remove if no GPU)
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [compute, utility]
+    hostname: gitnexus-mcp
+    domainname: local
+```
+
+### Full-Featured Docker CLI (GPU + Auth)
+
+```bash
+docker run -d \
+  --name=gitnexus-mcp \
+  --restart=unless-stopped \
+  --gpus all \
+  -p 8010:8010 \
+  -p 4747:4747 \
+  -v /path/to/your/repos:/data:rw \
+  -v /path/to/certs:/etc/haproxy/certs:ro \
+  -e PORT=8010 \
+  -e WEB_UI_PORT=4747 \
+  -e PUID=1000 \
+  -e PGID=1000 \
+  -e TZ=Asia/Dhaka \
+  -e NODE_ENV=production \
+  -e PROTOCOL=SHTTP \
+  -e API_KEY=replace-with-a-strong-secret \
+  -e CORS='*' \
+  -e ENABLE_HTTPS=true \
+  -e TLS_CERT_PATH=/etc/haproxy/certs/server.crt \
+  -e TLS_KEY_PATH=/etc/haproxy/certs/server.key \
+  -e HTTP_VERSION_MODE=auto \
+  -e DATA_DIR=/data \
+  -e ANALYZE_SKILLS=true \
+  -e ANALYZE_EMBEDDINGS=true \
+  -e WIKI_ENABLED=true \
+  -e OPENAI_API_KEY=sk-your-key-here \
+  -e WIKI_MODEL=gpt-4o-mini \
+  mekayelanik/gitnexus-mcp:stable
+```
+
+### Local Ollama + GitNexus (Docker Compose)
+
+```yaml
+services:
+  gitnexus-mcp:
+    image: mekayelanik/gitnexus-mcp:stable
+    container_name: gitnexus-mcp
+    restart: unless-stopped
+    ports:
+      - "8010:8010"
+      - "4747:4747"
+    volumes:
+      - /path/to/your/repos:/data:rw
+    environment:
+      - PORT=8010
+      - PROTOCOL=SHTTP
+      - ENABLE_HTTPS=false
+      - DATA_DIR=/data
+      - ANALYZE_SKIP_EMBEDDINGS=true
+      # Wiki via local Ollama
+      - WIKI_ENABLED=true
+      - WIKI_BASE_URL=http://ollama:11434/v1
+      - WIKI_MODEL=llama3
+      - OPENAI_API_KEY=not-needed
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    restart: unless-stopped
+    volumes:
+      - ollama-data:/root/.ollama
+    # Uncomment for GPU
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [compute, utility]
+
+volumes:
+  ollama-data:
+```
+
 ### Access Endpoints
 
 | Service | Endpoint | Description |

@@ -427,81 +427,24 @@ On startup, the container analyzes all subdirectories inside `DATA_DIR`. Mount y
 
 GitNexus can generate AI-powered wiki documentation for your repositories. It supports both cloud providers (OpenAI, Anthropic) and local AI servers (Ollama, vLLM, llama.cpp, etc.) via the OpenAI-compatible API. See the [Wiki Generation variables](#wiki-generation) in the table above.
 
-### Example: OpenAI
-
-```yaml
-environment:
-  - WIKI_ENABLED=true
-  - OPENAI_API_KEY=sk-your-key-here
-  - WIKI_MODEL=gpt-4o-mini
-```
-
-### Example: Local Ollama Server
-
-```yaml
-environment:
-  - WIKI_ENABLED=true
-  - WIKI_BASE_URL=http://host.docker.internal:11434/v1
-  - WIKI_MODEL=llama3
-  - OPENAI_API_KEY=not-needed
-```
-
-### Example: Local vLLM / llama.cpp Server
-
-```yaml
-environment:
-  - WIKI_ENABLED=true
-  - WIKI_BASE_URL=http://your-vllm-server:8000/v1
-  - WIKI_MODEL=your-model-name
-  - OPENAI_API_KEY=not-needed
-```
+| Provider | `WIKI_BASE_URL` | `WIKI_MODEL` | `OPENAI_API_KEY` |
+|:---------|:---------------|:-------------|:-----------------|
+| OpenAI | *(default)* | `gpt-4o-mini` | `sk-your-key` |
+| Ollama | `http://host.docker.internal:11434/v1` | `llama3` | `not-needed` |
+| vLLM/llama.cpp | `http://your-server:8000/v1` | `your-model` | `not-needed` |
 
 ---
 
 ## GPU Support
 
-GitNexus uses [onnxruntime-node](https://www.npmjs.com/package/onnxruntime-node) for embedding generation via HuggingFace transformers.js. NVIDIA GPUs can significantly accelerate this process.
+GitNexus uses onnxruntime-node for embedding generation. **NVIDIA GPUs** are supported for acceleration (AMD/Intel not supported by onnxruntime-node).
 
-### Supported GPUs
+**Prerequisites:** Install [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html), verify with `docker run --rm --gpus all nvidia/cuda:12.0-base nvidia-smi`.
 
-| GPU | Status | Notes |
-|:----|:------:|:------|
-| **NVIDIA (CUDA)** | Supported | Requires NVIDIA Container Toolkit on host |
-| **AMD (ROCm)** | Not supported | onnxruntime-node lacks ROCm support |
-| **Intel (oneAPI)** | Not supported | onnxruntime-node lacks oneAPI support |
+**Compose:** Add `deploy.resources.reservations.devices` (see Full-Featured example above).
+**CLI:** Add `--gpus all` flag.
 
-### Docker Compose (NVIDIA GPU)
-
-```yaml
-services:
-  gitnexus-mcp:
-    image: mekayelanik/gitnexus-mcp:latest
-    # ... other config ...
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [compute, utility]
-```
-
-### Docker CLI (NVIDIA GPU)
-
-```bash
-docker run -d \
-  --gpus all \
-  --name=gitnexus-mcp \
-  # ... other flags ...
-  mekayelanik/gitnexus-mcp:latest
-```
-
-### Prerequisites
-
-1. Install [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) on the host
-2. Verify with: `docker run --rm --gpus all nvidia/cuda:12.0-base nvidia-smi`
-
-The container automatically uses GPU when available and falls back to CPU when not. No additional environment variables needed.
+The container auto-detects GPU and falls back to CPU when unavailable.
 
 ---
 
@@ -520,96 +463,35 @@ The container automatically uses GPU when available and falls back to CPU when n
 
 ---
 
-### VS Code (Cline/Roo-Cline)
-
-Configure in `.vscode/settings.json`:
-
-```json
-{
-  "mcp.servers": {
-    "gitnexus": {
-      "url": "http://host-ip:8010/mcp",
-      "transport": "http"
-    }
-  }
-}
-```
-
----
-
-### Claude Desktop App / Claude Code
-
-**With API_KEY:**
-```
-claude mcp add-json gitnexus '{"type":"http","url":"http://localhost:8010/mcp","headers":{"Authorization":"Bearer <YOUR_API_KEY>"}}'
-```
-
-**Without API_KEY:**
-```
-claude mcp add-json gitnexus '{"type":"http","url":"http://localhost:8010/mcp"}'
-```
-
----
-
-### Codex CLI
-
-Configure in `~/.codex/config.json`:
-
-```json
-{
-  "mcpServers": {
-    "gitnexus": {
-      "transport": "http",
-      "url": "http://host-ip:8010/mcp"
-    }
-  }
-}
-```
-
----
-
-### Codeium (Windsurf)
-
-Configure in `.codeium/mcp_settings.json`:
-
-```json
-{
-  "mcpServers": {
-    "gitnexus": {
-      "transport": "http",
-      "url": "http://host-ip:8010/mcp"
-    }
-  }
-}
-```
-
----
-
-### Cursor
-
-Configure in `~/.cursor/mcp.json`:
-
-```json
-{
-  "mcpServers": {
-    "gitnexus": {
-      "transport": "http",
-      "url": "http://host-ip:8010/mcp"
-    }
-  }
-}
-```
-
----
-
-### Testing Configuration
-
-Verify with [MCP Inspector](https://github.com/modelcontextprotocol/inspector):
+### Claude Code / Claude Desktop
 
 ```bash
-npm install -g @modelcontextprotocol/inspector
-mcp-inspector http://host-ip:8010/mcp
+# With API_KEY
+claude mcp add-json gitnexus '{"type":"http","url":"http://host-ip:8010/mcp","headers":{"Authorization":"Bearer <KEY>"}}'
+# Without API_KEY
+claude mcp add-json gitnexus '{"type":"http","url":"http://host-ip:8010/mcp"}'
 ```
+
+### VS Code / Codex / Cursor / Windsurf
+
+All use the same JSON format. Configure in the respective config file:
+- **VS Code**: `.vscode/settings.json` (key: `mcp.servers`)
+- **Codex**: `~/.codex/config.json` (key: `mcpServers`)
+- **Cursor**: `~/.cursor/mcp.json` (key: `mcpServers`)
+- **Windsurf**: `.codeium/mcp_settings.json` (key: `mcpServers`)
+
+```json
+{
+  "mcpServers": {
+    "gitnexus": {
+      "transport": "http",
+      "url": "http://host-ip:8010/mcp"
+    }
+  }
+}
+```
+
+Test with [MCP Inspector](https://github.com/modelcontextprotocol/inspector): `npx @modelcontextprotocol/inspector http://host-ip:8010/mcp`
 
 ---
 
@@ -727,83 +609,19 @@ docker run --rm \
 
 ### Common Issues
 
-#### Container Won't Start
+| Issue | Solution |
+|:------|:---------|
+| Container won't start | `docker logs gitnexus-mcp`, check port conflicts: `sudo netstat -tulpn \| grep -E '8010\|4747'` |
+| No repos analyzed | Verify mount: `ls -la /path/to/repos/` - each repo must be a subdirectory |
+| Permission errors | Match PUID/PGID to host: `id $USER`, fix with `sudo chown -R 1000:1000 /path/to/repos` |
+| Client can't connect | Test: `curl http://localhost:8010/mcp`, check firewall: `sudo ufw status` |
+| Wiki fails | Verify: `docker exec gitnexus-mcp env \| grep OPENAI_API_KEY` |
+
+### Debug Info
 
 ```bash
-# Check Docker version
-docker --version
-
-# Verify port availability
-sudo netstat -tulpn | grep -E '8010|4747'
-
-# Check logs
-docker logs gitnexus-mcp
-```
-
-#### No Repositories Analyzed
-
-```bash
-# Verify mount structure
-ls -la /path/to/your/repos/
-
-# Each repo should be a subdirectory
-# /path/to/your/repos/project-a/
-# /path/to/your/repos/project-b/
-```
-
-#### Permission Errors
-
-```bash
-# Get your IDs
-id $USER
-
-# Update configuration with correct PUID/PGID
-# Fix volume permissions if needed
-sudo chown -R 1000:1000 /path/to/your/repos
-```
-
-#### Client Cannot Connect
-
-```bash
-# Test MCP connectivity
-curl http://localhost:8010/mcp
-curl http://host-ip:8010/mcp
-
-# Test Web UI
-curl http://localhost:4747
-
-# With HTTPS
-curl -k https://localhost:8010/mcp
-
-# Check firewall
-sudo ufw status
-
-# Verify container
-docker inspect gitnexus-mcp | grep IPAddress
-```
-
-#### Wiki Generation Fails
-
-```bash
-# Ensure API key is set
-docker exec gitnexus-mcp env | grep OPENAI_API_KEY
-
-# For local AI servers, verify connectivity
-docker exec gitnexus-mcp curl http://host.docker.internal:11434/v1/models
-```
-
-### Debug Information
-
-When reporting issues, include:
-
-```bash
-# System info
 docker --version && uname -a
-
-# Container logs
 docker logs gitnexus-mcp --tail 200 > logs.txt
-
-# Container config
 docker inspect gitnexus-mcp > inspect.json
 ```
 
@@ -811,19 +629,9 @@ docker inspect gitnexus-mcp > inspect.json
 
 ## Additional Resources
 
-### Documentation
-- [GitNexus Official GitHub](https://github.com/abhigyanpatwari/GitNexus)
-- [GitNexus NPM Package](https://www.npmjs.com/package/gitnexus)
-- [MCP Inspector](https://github.com/modelcontextprotocol/inspector)
-
-### Docker Resources
-- [Docker Compose Best Practices](https://docs.docker.com/compose/production/)
-- [Docker Networking](https://docs.docker.com/network/)
-- [Docker Security](https://docs.docker.com/engine/security/)
-
-### Monitoring
-- [Diun - Update Notifier](https://crazymax.dev/diun/)
-- [Watchtower](https://containrrr.dev/watchtower/)
+- [GitNexus GitHub](https://github.com/abhigyanpatwari/GitNexus) | [NPM](https://www.npmjs.com/package/gitnexus) | [MCP Inspector](https://github.com/modelcontextprotocol/inspector)
+- [Docker Compose](https://docs.docker.com/compose/production/) | [Networking](https://docs.docker.com/network/) | [Security](https://docs.docker.com/engine/security/)
+- [Diun](https://crazymax.dev/diun/) | [Watchtower](https://containrrr.dev/watchtower/)
 
 ---
 

@@ -47,7 +47,7 @@
 
 ## Overview
 
-[GitNexus](https://github.com/abhigyanpatwari/GitNexus) is a powerful code intelligence MCP server that indexes repositories, generates embeddings, creates wiki documentation, and provides AI-powered code search and navigation. This Docker image packages GitNexus for distributed/remote deployment with HAProxy as a reverse proxy, supporting multiple transport protocols, API key authentication, CORS, and HTTP/1.1, HTTP/2, and HTTP/3 (QUIC).
+[GitNexus](https://github.com/abhigyanpatwari/GitNexus) is a powerful code intelligence MCP server that builds a knowledge graph of your codebase using LadybugDB (embedded graph database), indexes repositories with Tree-sitter parsing, generates embeddings, creates wiki documentation, and provides AI-powered code search and navigation. This Docker image packages GitNexus for distributed/remote deployment with HAProxy as a reverse proxy, supporting multiple transport protocols, API key authentication, CORS, and HTTP/1.1, HTTP/2, and HTTP/3 (QUIC).
 
 ### Key Features
 
@@ -272,7 +272,7 @@ GitNexus can generate AI-powered wiki documentation for your repositories. It su
 | Variable | Default | Description |
 |:---------|:-------:|:------------|
 | `WIKI_ENABLED` | `false` | Enable wiki generation after analysis |
-| `WIKI_MODEL` | *(gitnexus default)* | Model to use (e.g., `gpt-4o`, `llama3`, `mistral`) |
+| `WIKI_MODEL` | `gpt-4o-mini` | Model to use (e.g., `gpt-4o-mini`, `gpt-4o`, `llama3`, `mistral`) |
 | `WIKI_BASE_URL` | *(gitnexus default)* | API base URL for the LLM provider |
 | `WIKI_FORCE` | `false` | Force full wiki regeneration |
 | `OPENAI_API_KEY` | *(empty)* | API key for OpenAI or compatible providers |
@@ -283,7 +283,7 @@ GitNexus can generate AI-powered wiki documentation for your repositories. It su
 environment:
   - WIKI_ENABLED=true
   - OPENAI_API_KEY=sk-your-key-here
-  - WIKI_MODEL=gpt-4o
+  - WIKI_MODEL=gpt-4o-mini
 ```
 
 ### Example: Local Ollama Server

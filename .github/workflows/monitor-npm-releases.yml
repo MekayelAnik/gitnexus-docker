@@ -1,0 +1,181 @@
+name: GitNexus MCP NPM Build Pipeline
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: Action to perform
+        required: true
+        type: choice
+        options:
+          - auto-check
+          - build-versions
+          - promote-latest
+        default: auto-check
+      versions:
+        description: Optional versions to build (comma-separated). Empty = auto from NPM.
+        required: false
+        type: string
+        default: ''
+      force_build:
+        description: Force build even if tags may already exist
+        required: false
+        type: boolean
+        default: false
+      build_profile:
+        description: Build profile
+        required: false
+        type: choice
+        options:
+          - production
+          - ci
+          - development
+          - size-optimized
+        default: production
+      base_image:
+        description: 'Base image override (example: node:current-alpine)'
+        required: false
+        type: string
+        default: ''
+
+  repository_dispatch:
+    types: [gitnexus-mcp-build]
+
+permissions:
+  contents: read
+  actions: read
+  packages: write
+
+concurrency:
+  group: gitnexus-mcp-npm-${{ github.event_name == 'workflow_dispatch' && github.event.inputs.action || github.event_name == 'repository_dispatch' && (github.event.client_payload.action || 'external') || 'manual' }}
+  cancel-in-progress: false
+
+env:
+  NPM_PACKAGE: 'gitnexus'
+  NPM_REGISTRY: 'https://registry.npmjs.org'
+  MAX_VERSIONS: '10'
+  TZ: ${{ vars.TZ || 'Asia/Dhaka' }}
+  PRIMARY_REGISTRY: 'ghcr'
+  DOCKERHUB_REPO: ${{ vars.DOCKERHUB_REPO || 'mekayelanik/gitnexus-mcp' }}
+  GHCR_REPO: ${{ vars.GHCR_REPO || format('ghcr.io/{0}/gitnexus-mcp', github.repository_owner) }}
+  DEFAULT_PLATFORMS: ${{ vars.DEFAULT_PLATFORMS || 'linux/amd64,linux/arm64' }}
+  BASE_IMAGE_DEFAULT: ${{ github.event.inputs.base_image || vars.BASE_IMAGE_DEFAULT || 'node:current-alpine' }}
+  EXPORT_CACHE_CONCURRENCY: '4'
+  EXPORT_LAYERS_CONCURRENCY: '4'
+  BUILDKIT_STEP_LOG_MAX_SIZE: '50000000'
+  BUILDKIT_STEP_LOG_MAX_SPEED: '100000000'
+  BUILDKIT_PROGRESS: 'plain'
+  DOCKER_BUILDKIT_INLINE_CACHE: '1'
+
+jobs:
+  preflight:
+    name: Preflight checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate workflow YAML
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python3 - <<'PY'
+          import yaml
+          from pathlib import Path
+
+          workflow_dir = Path('.github/workflows')
+          for wf in sorted(workflow_dir.glob('*.yml')):
+              yaml.safe_load(wf.read_text(encoding='utf-8'))
+          print('workflow_yaml_ok')
+          PY
+
+      - name: Run preflight shell tests
+        uses: ./.github/actions/preflight-shell-tests
+
+  fetch-releases:
+    name: Fetch and filter NPM releases
+    runs-on: ubuntu-latest
+    needs: [preflight]
+    outputs:
+      normalized_action: ${{ steps.normalize.outputs.action }}
+      normalized_versions: ${{ steps.normalize.outputs.versions }}
+      normalized_force_build: ${{ steps.normalize.outputs.force_build }}
+      versions_json: ${{ steps.releases.outputs.versions_json }}
+      latest_version: ${{ steps.releases.outputs.latest_version }}
+      date_tag: ${{ steps.releases.outputs.date_tag }}
+      should_build: ${{ steps.releases.outputs.should_build }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Normalize dispatch inputs
+        id: normalize
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ACTION_INPUT="${{ github.event.inputs.action || '' }}" \
+          CLIENT_ACTION="${{ github.event.client_payload.action || '' }}" \
+          VERSIONS_INPUT="${{ github.event.inputs.versions || '' }}" \
+          CLIENT_VERSIONS="${{ github.event.client_payload.versions || '' }}" \
+          FORCE_INPUT="${{ github.event.inputs.force_build || '' }}" \
+          CLIENT_FORCE="${{ github.event.client_payload.force_build || '' }}" \
+          bash .github/scripts/normalize-dispatch-inputs.sh
+
+      - name: Collect stable versions
+        id: releases
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          REQUESTED_ACTION="${{ steps.normalize.outputs.action }}" \
+          MANUAL_VERSIONS_RAW="${{ steps.normalize.outputs.versions }}" \
+          NPM_PACKAGE="${NPM_PACKAGE}" \
+          NPM_REGISTRY="${NPM_REGISTRY}" \
+          MAX_VERSIONS="${MAX_VERSIONS}" \
+          bash .github/scripts/fetch-releases.sh
+
+  build-versions:
+    name: Build selected versions
+    needs: [fetch-releases]
+    if: needs.fetch-releases.outputs.should_build == 'true' && needs.fetch-releases.outputs.normalized_action != 'promote-latest'
+    uses: ./.github/workflows/reusable-build-versions.yml
+    with:
+      versions_json: ${{ needs.fetch-releases.outputs.versions_json }}
+      build_profile: ${{ github.event.inputs.build_profile || 'production' }}
+      force_build: ${{ needs.fetch-releases.outputs.normalized_force_build }}
+      base_image_default: ${{ github.event.inputs.base_image || vars.BASE_IMAGE_DEFAULT || 'node:current-alpine' }}
+      ghcr_repo: ${{ vars.GHCR_REPO || format('ghcr.io/{0}/gitnexus-mcp', github.repository_owner) }}
+      dockerhub_repo: ${{ vars.DOCKERHUB_REPO || 'mekayelanik/gitnexus-mcp' }}
+      default_platforms: ${{ vars.DEFAULT_PLATFORMS || 'linux/amd64,linux/arm64' }}
+      export_cache_concurrency: '4'
+      export_layers_concurrency: '4'
+      buildkit_step_log_max_size: '50000000'
+      buildkit_step_log_max_speed: '100000000'
+      buildkit_progress: 'plain'
+      docker_buildkit_inline_cache: '1'
+    secrets:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+
+  promote-latest:
+    name: Promote latest tag
+    needs: [fetch-releases, build-versions]
+    if: |
+      always() &&
+      needs.fetch-releases.outputs.latest_version != '' &&
+      (
+        needs.fetch-releases.outputs.normalized_action == 'promote-latest' ||
+        (needs.fetch-releases.outputs.normalized_action == 'auto-check' && needs.build-versions.result == 'success')
+      )
+    uses: ./.github/workflows/reusable-promote-latest.yml
+    with:
+      latest_version: ${{ needs.fetch-releases.outputs.latest_version }}
+      date_tag: ${{ needs.fetch-releases.outputs.date_tag }}
+      ghcr_repo: ${{ vars.GHCR_REPO || format('ghcr.io/{0}/gitnexus-mcp', github.repository_owner) }}
+      dockerhub_repo: ${{ vars.DOCKERHUB_REPO || 'mekayelanik/gitnexus-mcp' }}
+    secrets:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}

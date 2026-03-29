@@ -1,0 +1,683 @@
+#!/usr/bin/env bash
+set -euo pipefail
+/usr/local/bin/banner.sh
+
+readonly DEFAULT_PUID=1000
+readonly DEFAULT_PGID=1000
+readonly DEFAULT_PORT=8010
+readonly DEFAULT_INTERNAL_PORT=38011
+readonly DEFAULT_WEB_UI_PORT=4747
+readonly DEFAULT_PROTOCOL="SHTTP"
+readonly DEFAULT_TLS_MIN_VERSION="TLSv1.3"
+readonly DEFAULT_HTTP_VERSION_MODE="auto"
+readonly DEFAULT_DATA_DIR="/data"
+readonly SAFE_API_KEY_REGEX='^[[:graph:]]+$'
+readonly MIN_API_KEY_LEN=5
+readonly MAX_API_KEY_LEN=256
+readonly FIRST_RUN_FILE="/tmp/first_run_complete"
+readonly HAPROXY_SERVER_NAME="gitnexus"
+readonly HAPROXY_TEMPLATE="/etc/haproxy/haproxy.cfg.template"
+readonly HAPROXY_CONFIG="/tmp/haproxy.cfg"
+
+trim() {
+    local var="$*"
+    var="${var#"${var%%[![:space:]]*}"}"
+    var="${var%"${var##*[![:space:]]}"}"
+    printf '%s' "$var"
+}
+
+is_positive_int() {
+    [[ "$1" =~ ^[0-9]+$ ]] && [ "$1" -gt 0 ]
+}
+
+is_true() {
+    case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
+        1|true|yes|on) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+validate_port() {
+    local name="$1"
+    local value="$2"
+    local fallback="$3"
+
+    if ! is_positive_int "$value" || [ "$value" -lt 1 ] || [ "$value" -gt 65535 ]; then
+        echo "Invalid ${name}='${value}', using default ${fallback}"
+        printf '%s' "$fallback"
+        return
+    fi
+
+    printf '%s' "$value"
+}
+
+validate_tls_min_version() {
+    local value="$1"
+    local fallback="$2"
+
+    case "$value" in
+        TLSv1.2|TLSv1.3)
+            printf '%s' "$value"
+            ;;
+        *)
+            echo "Invalid TLS_MIN_VERSION='${value}', using default ${fallback}" >&2
+            printf '%s' "$fallback"
+            ;;
+    esac
+}
+
+normalize_http_version_mode() {
+    local raw="$1"
+    local mode
+
+    mode="$(printf '%s' "$raw" | tr '[:upper:]' '[:lower:]')"
+    mode="$(trim "$mode")"
+
+    case "$mode" in
+        auto|all|h1|h2|h3|h1+h2)
+            printf '%s' "$mode"
+            ;;
+        http/1.1|http1|http1.1)
+            printf 'h1'
+            ;;
+        http/2|http2)
+            printf 'h2'
+            ;;
+        http/3|http3)
+            printf 'h3'
+            ;;
+        *)
+            echo "Invalid HTTP_VERSION_MODE='${raw}', using default ${DEFAULT_HTTP_VERSION_MODE}" >&2
+            printf '%s' "$DEFAULT_HTTP_VERSION_MODE"
+            ;;
+    esac
+}
+
+validate_api_key() {
+    API_KEY="${API_KEY:-}"
+    API_KEY="$(trim "$API_KEY")"
+    local api_key_len=0
+
+    if [[ -z "$API_KEY" ]]; then
+        export API_KEY=""
+        return
+    fi
+
+    api_key_len="${#API_KEY}"
+    if (( api_key_len < MIN_API_KEY_LEN || api_key_len > MAX_API_KEY_LEN )); then
+        echo "Invalid API_KEY length (${api_key_len}). Expected ${MIN_API_KEY_LEN}-${MAX_API_KEY_LEN} characters." >&2
+        exit 1
+    fi
+
+    if [[ ! "$API_KEY" =~ $SAFE_API_KEY_REGEX ]]; then
+        echo "Invalid API_KEY format. Refusing to start with malformed API key (whitespace/control chars are not allowed)." >&2
+        exit 1
+    fi
+
+    export API_KEY
+}
+
+validate_cors() {
+    ALLOW_ALL_CORS=false
+    HAPROXY_CORS_ENABLED=false
+    HAPROXY_CORS_ORIGINS=()
+
+    local cors_value
+    if [[ -z "${CORS:-}" ]]; then
+        return
+    fi
+
+    HAPROXY_CORS_ENABLED=true
+    IFS=',' read -ra CORS_VALUES <<< "$CORS"
+    for cors_value in "${CORS_VALUES[@]}"; do
+        cors_value="$(trim "$cors_value")"
+        [[ -z "$cors_value" ]] && continue
+
+        if [[ "$cors_value" =~ ^(all|\*)$ ]]; then
+            ALLOW_ALL_CORS=true
+            HAPROXY_CORS_ORIGINS=("*")
+            break
+        elif [[ "$cors_value" =~ ^https?:// ]]; then
+            HAPROXY_CORS_ORIGINS+=("$cors_value")
+        elif [[ "$cors_value" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(:[0-9]+)?$ ]]; then
+            HAPROXY_CORS_ORIGINS+=("http://$cors_value" "https://$cors_value")
+        elif [[ "$cors_value" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+(:[0-9]+)?$ ]]; then
+            HAPROXY_CORS_ORIGINS+=("http://$cors_value" "https://$cors_value")
+        else
+            echo "Warning: Invalid CORS pattern '$cors_value' - skipping"
+        fi
+    done
+}
+
+handle_first_run() {
+    local uid_gid_changed=0
+
+    if [[ -z "${PUID:-}" && -z "${PGID:-}" ]]; then
+        PUID="$DEFAULT_PUID"
+        PGID="$DEFAULT_PGID"
+    elif [[ -n "${PUID:-}" && -z "${PGID:-}" ]]; then
+        if is_positive_int "$PUID"; then
+            PGID="$PUID"
+        else
+            PUID="$DEFAULT_PUID"
+            PGID="$DEFAULT_PGID"
+        fi
+    elif [[ -z "${PUID:-}" && -n "${PGID:-}" ]]; then
+        if is_positive_int "$PGID"; then
+            PUID="$PGID"
+        else
+            PUID="$DEFAULT_PUID"
+            PGID="$DEFAULT_PGID"
+        fi
+    else
+        if ! is_positive_int "$PUID"; then
+            PUID="$DEFAULT_PUID"
+        fi
+        if ! is_positive_int "$PGID"; then
+            PGID="$DEFAULT_PGID"
+        fi
+    fi
+
+    if [ "$(id -u node)" -ne "$PUID" ]; then
+        if usermod -o -u "$PUID" node 2>/dev/null; then
+            uid_gid_changed=1
+        else
+            PUID="$(id -u node)"
+        fi
+    fi
+
+    if [ "$(id -g node)" -ne "$PGID" ]; then
+        if groupmod -o -g "$PGID" node 2>/dev/null; then
+            uid_gid_changed=1
+        else
+            PGID="$(id -g node)"
+        fi
+    fi
+
+    if [ "$uid_gid_changed" -eq 1 ]; then
+        echo "Updated UID/GID to PUID=${PUID}, PGID=${PGID}"
+    fi
+
+    touch "$FIRST_RUN_FILE"
+}
+
+haproxy_supports_quic() {
+    haproxy -vv 2>/dev/null | grep -Eiq 'USE_QUIC=1|[[:space:]]quic[[:space:]]: mode=HTTP'
+}
+
+ensure_parent_dir() {
+    local target="$1"
+    mkdir -p "$(dirname "$target")"
+}
+
+prepare_tls_pem() {
+    local cert_path="$1"
+    local key_path="$2"
+    local pem_path="$3"
+
+    if [[ -f "$pem_path" ]]; then
+        return
+    fi
+
+    ensure_parent_dir "$pem_path"
+
+    if [[ -f "$cert_path" && -f "$key_path" ]]; then
+        cat "$cert_path" "$key_path" > "$pem_path"
+        chmod 600 "$pem_path"
+        return
+    fi
+
+    echo "ERROR: ENABLE_HTTPS=true but certificate files are missing." >&2
+    echo "Please provide TLS_CERT_PATH and TLS_KEY_PATH, or a combined TLS_PEM_PATH." >&2
+    echo "Auto certificate generation is not supported in this image." >&2
+    echo "See CERTIFICATE_SETUP_GUIDE.md for instructions." >&2
+    exit 1
+}
+
+resolve_listener_protocols() {
+    local mode="$1"
+
+    if ! is_true "$ENABLE_HTTPS"; then
+        if [[ "$mode" != "h1" ]]; then
+            echo "HTTP_VERSION_MODE='${mode}' requested without TLS; falling back to HTTP/1.1" >&2
+        fi
+
+        BIND_PARAMS=""
+        QUIC_BIND_LINE="# HTTP/3 disabled"
+        EFFECTIVE_HTTP_VERSIONS="h1"
+        return
+    fi
+
+    local alpn="http/1.1"
+    local want_h3="false"
+
+    case "$mode" in
+        h1)
+            alpn="http/1.1"
+            ;;
+        h2)
+            alpn="h2"
+            ;;
+        h1+h2)
+            alpn="h2,http/1.1"
+            ;;
+        h3)
+            alpn="h2,http/1.1"
+            want_h3="true"
+            ;;
+        auto|all)
+            alpn="h2,http/1.1"
+            want_h3="true"
+            ;;
+    esac
+
+    BIND_PARAMS="ssl crt ${TLS_PEM_PATH} ssl-min-ver ${TLS_MIN_VERSION} alpn ${alpn}"
+    EFFECTIVE_HTTP_VERSIONS="${alpn}"
+    QUIC_BIND_LINE="# HTTP/3 disabled"
+
+    if [[ "$want_h3" == "true" ]]; then
+        if haproxy_supports_quic; then
+            QUIC_BIND_LINE="bind quic4@*:${PORT} ssl crt ${TLS_PEM_PATH} ssl-min-ver ${TLS_MIN_VERSION} alpn h3"
+            EFFECTIVE_HTTP_VERSIONS="${EFFECTIVE_HTTP_VERSIONS},h3"
+        else
+            echo "HTTP_VERSION_MODE='${mode}' requested h3, but QUIC is not available in this HAProxy build; continuing with ${alpn}" >&2
+        fi
+    fi
+}
+
+escape_sed_replacement() {
+    local value="$1"
+    value="${value//\\/\\\\}"
+    value="${value//&/\\&}"
+    value="${value//|/\\|}"
+    printf '%s' "$value"
+}
+
+escape_haproxy_regex() {
+    local value="$1"
+    local escaped=""
+    local i ch
+
+    for ((i = 0; i < ${#value}; i++)); do
+        ch="${value:i:1}"
+        if [[ "$ch" =~ [\\.^$\|?*+(){}\[\]] ]]; then
+            escaped+="\\$ch"
+        else
+            escaped+="$ch"
+        fi
+    done
+
+    printf '%s' "$escaped"
+}
+
+generate_haproxy_config() {
+    if [[ ! -f "$HAPROXY_TEMPLATE" ]]; then
+        echo "Error: HAProxy template missing at ${HAPROXY_TEMPLATE}" >&2
+        exit 1
+    fi
+
+    local api_key_check
+    if [[ -n "$API_KEY" ]]; then
+        local escaped_key_regex
+        escaped_key_regex="$(escape_haproxy_regex "$API_KEY")"
+        api_key_check="    # API Key authentication enabled (localhost /healthz excluded)
+    acl auth_header_present var(txn.auth_header) -m found
+    acl auth_valid var(txn.auth_header) -m reg ^[Bb][Ee][Aa][Rr][Ee][Rr][[:space:]]+${escaped_key_regex}$
+
+    # Deny requests without valid authentication (except localhost health checks)
+    http-request deny deny_status 401 content-type \"application/json\" string '{\"error\":\"Unauthorized\",\"message\":\"Valid API key required\"}' if !is_health_check !auth_header_present
+    http-request deny deny_status 401 content-type \"application/json\" string '{\"error\":\"Unauthorized\",\"message\":\"Valid API key required\"}' if is_health_check !is_localhost !auth_header_present
+    http-request deny deny_status 403 content-type \"application/json\" string '{\"error\":\"Forbidden\",\"message\":\"Invalid API key\"}' if !is_health_check auth_header_present !auth_valid
+    http-request deny deny_status 403 content-type \"application/json\" string '{\"error\":\"Forbidden\",\"message\":\"Invalid API key\"}' if is_health_check !is_localhost auth_header_present !auth_valid"
+    else
+        api_key_check="    # API Key authentication disabled - all requests allowed"
+    fi
+
+    local cors_check
+    local cors_preflight_condition
+    local cors_response_condition
+
+    if [[ "$HAPROXY_CORS_ENABLED" == "true" ]]; then
+        if [[ "$ALLOW_ALL_CORS" == "true" ]]; then
+            cors_check="    # CORS enabled - allowing ALL origins"
+            cors_preflight_condition="{ var(txn.origin) -m found }"
+            cors_response_condition="{ var(txn.origin) -m found }"
+        else
+            cors_check="    # CORS enabled - allowing specific origins
+    acl cors_origin_allowed var(txn.origin) -m str -i"
+
+            local origin
+            for origin in "${HAPROXY_CORS_ORIGINS[@]}"; do
+                cors_check+=" ${origin}"
+            done
+
+            cors_check+="
+
+    # Deny requests from non-allowed origins
+    http-request deny deny_status 403 content-type \"application/json\" string '{\"error\":\"Forbidden\",\"message\":\"Origin not allowed\"}' if { var(txn.origin) -m found } !cors_origin_allowed"
+            cors_preflight_condition="cors_origin_allowed"
+            cors_response_condition="cors_origin_allowed"
+        fi
+    else
+        cors_check="    # CORS disabled"
+        cors_preflight_condition="{ always_false }"
+        cors_response_condition="{ always_false }"
+    fi
+
+    local escaped_bind_params
+    local escaped_quic_bind_line
+    escaped_bind_params="$(escape_sed_replacement "$BIND_PARAMS")"
+    escaped_quic_bind_line="$(escape_sed_replacement "$QUIC_BIND_LINE")"
+
+    sed -e "s|__SERVER_PORT__|${PORT}|g" \
+        -e "s|__BIND_PARAMS__|${escaped_bind_params}|g" \
+        -e "s|__QUIC_BIND_LINE__|${escaped_quic_bind_line}|g" \
+        -e "s|__INTERNAL_PORT__|${INTERNAL_PORT}|g" \
+        -e "s|__SERVER_NAME__|${HAPROXY_SERVER_NAME}|g" \
+        -e "s|__CORS_PREFLIGHT_CONDITION__|${cors_preflight_condition}|g" \
+        -e "s|__CORS_RESPONSE_CONDITION__|${cors_response_condition}|g" \
+        "$HAPROXY_TEMPLATE" > "${HAPROXY_CONFIG}.tmp"
+
+    awk -v replacement="$api_key_check" -v replacement_cors="$cors_check" '
+        /__API_KEY_CHECK__/ {
+            print replacement
+            next
+        }
+        /__CORS_CHECK__/ {
+            print replacement_cors
+            next
+        }
+        { print }
+    ' "${HAPROXY_CONFIG}.tmp" > "$HAPROXY_CONFIG"
+
+    rm -f "${HAPROXY_CONFIG}.tmp"
+
+    haproxy -c -f "$HAPROXY_CONFIG" >/dev/null
+}
+
+start_haproxy() {
+    echo "Starting HAProxy on port ${PORT}"
+    haproxy -db -f "$HAPROXY_CONFIG" &
+    HAPROXY_PID=$!
+}
+
+run_gitnexus_clean() {
+    if is_true "${CLEAN_ALL_FORCE:-false}"; then
+        echo "Running gitnexus clean --all --force..."
+        gitnexus clean --all --force || echo "Warning: gitnexus clean --all --force returned non-zero"
+        return
+    fi
+
+    if is_true "${CLEAN_ON_START:-false}"; then
+        echo "Running gitnexus clean..."
+        gitnexus clean || echo "Warning: gitnexus clean returned non-zero"
+    fi
+}
+
+run_gitnexus_analyze() {
+    local data_dir="$1"
+
+    if [[ ! -d "$data_dir" ]]; then
+        echo "Warning: DATA_DIR='${data_dir}' does not exist. Skipping analysis."
+        return
+    fi
+
+    local analyze_args=()
+
+    if is_true "${ANALYZE_FORCE:-false}"; then
+        analyze_args+=("--force")
+    fi
+
+    if is_true "${ANALYZE_SKILLS:-false}"; then
+        analyze_args+=("--skills")
+    fi
+
+    if is_true "${ANALYZE_SKIP_EMBEDDINGS:-false}"; then
+        analyze_args+=("--skip-embeddings")
+    fi
+
+    if is_true "${ANALYZE_SKIP_AGENTS_MD:-false}"; then
+        analyze_args+=("--skip-agents-md")
+    fi
+
+    if is_true "${ANALYZE_EMBEDDINGS:-false}"; then
+        analyze_args+=("--embeddings")
+    fi
+
+    if is_true "${ANALYZE_VERBOSE:-false}"; then
+        analyze_args+=("--verbose")
+    fi
+
+    local found_repos=0
+    for repo_dir in "$data_dir"/*/; do
+        if [[ -d "$repo_dir" ]]; then
+            found_repos=1
+            echo "Analyzing repository: ${repo_dir}"
+            (cd "$repo_dir" && gitnexus analyze "${analyze_args[@]}" 2>&1) || \
+                echo "Warning: gitnexus analyze failed for ${repo_dir}"
+        fi
+    done
+
+    if [[ "$found_repos" -eq 0 ]]; then
+        echo "No subdirectories found in ${data_dir}. Analyzing root data directory..."
+        (cd "$data_dir" && gitnexus analyze "${analyze_args[@]}" 2>&1) || \
+            echo "Warning: gitnexus analyze failed for ${data_dir}"
+    fi
+}
+
+run_gitnexus_wiki() {
+    if ! is_true "${WIKI_ENABLED:-false}"; then
+        return
+    fi
+
+    local data_dir="$1"
+    local wiki_args=()
+
+    if [[ -n "${WIKI_MODEL:-}" ]]; then
+        wiki_args+=("--model" "$WIKI_MODEL")
+    fi
+
+    if [[ -n "${WIKI_BASE_URL:-}" ]]; then
+        wiki_args+=("--base-url" "$WIKI_BASE_URL")
+    fi
+
+    if is_true "${WIKI_FORCE:-false}"; then
+        wiki_args+=("--force")
+    fi
+
+    for repo_dir in "$data_dir"/*/; do
+        if [[ -d "$repo_dir" ]]; then
+            echo "Generating wiki for: ${repo_dir}"
+            (cd "$repo_dir" && gitnexus wiki "${wiki_args[@]}" 2>&1) || \
+                echo "Warning: gitnexus wiki failed for ${repo_dir}"
+        fi
+    done
+}
+
+start_mcp_server() {
+    local mcp_server_cmd="gitnexus mcp"
+
+    case "${PROTOCOL^^}" in
+        SHTTP|STREAMABLEHTTP)
+            CMD_ARGS=(npx --yes supergateway --port "$INTERNAL_PORT" --streamableHttpPath /mcp --outputTransport streamableHttp --healthEndpoint /healthz --stdio "$mcp_server_cmd")
+            PROTOCOL_DISPLAY="SHTTP/streamableHttp"
+            ;;
+        SSE)
+            CMD_ARGS=(npx --yes supergateway --port "$INTERNAL_PORT" --ssePath /sse --outputTransport sse --healthEndpoint /healthz --stdio "$mcp_server_cmd")
+            PROTOCOL_DISPLAY="SSE/Server-Sent Events"
+            ;;
+        WS|WEBSOCKET)
+            CMD_ARGS=(npx --yes supergateway --port "$INTERNAL_PORT" --messagePath /message --outputTransport ws --healthEndpoint /healthz --stdio "$mcp_server_cmd")
+            PROTOCOL_DISPLAY="WS/WebSocket"
+            ;;
+        *)
+            echo "Invalid PROTOCOL='${PROTOCOL}', using default ${DEFAULT_PROTOCOL}"
+            CMD_ARGS=(npx --yes supergateway --port "$INTERNAL_PORT" --streamableHttpPath /mcp --outputTransport streamableHttp --healthEndpoint /healthz --stdio "$mcp_server_cmd")
+            PROTOCOL_DISPLAY="SHTTP/streamableHttp"
+            ;;
+    esac
+
+    echo "Launching GitNexus MCP with protocol: ${PROTOCOL_DISPLAY}"
+
+    if [ "$(id -u)" -eq 0 ]; then
+        su-exec node "${CMD_ARGS[@]}" &
+    else
+        "${CMD_ARGS[@]}" &
+    fi
+
+    MCP_PID=$!
+
+    local i=0
+    until nc -z 127.0.0.1 "$INTERNAL_PORT" >/dev/null 2>&1; do
+        if ! kill -0 "$MCP_PID" >/dev/null 2>&1; then
+            echo "MCP server exited before becoming ready" >&2
+            return 1
+        fi
+
+        i=$((i + 1))
+        if [ "$i" -ge 30 ]; then
+            echo "MCP server did not become ready on ${INTERNAL_PORT}" >&2
+            return 1
+        fi
+
+        sleep 1
+    done
+}
+
+start_web_ui() {
+    if ! is_true "${ENABLE_WEB_UI:-true}"; then
+        echo "Web UI disabled (ENABLE_WEB_UI=false)"
+        return
+    fi
+
+    echo "Starting GitNexus Web UI on port ${WEB_UI_PORT}"
+
+    if [ "$(id -u)" -eq 0 ]; then
+        su-exec node gitnexus serve --port "$WEB_UI_PORT" &
+    else
+        gitnexus serve --port "$WEB_UI_PORT" &
+    fi
+
+    WEB_UI_PID=$!
+}
+
+shutdown() {
+    set +e
+    if [[ -n "${HAPROXY_PID:-}" ]]; then
+        kill "$HAPROXY_PID" 2>/dev/null || true
+    fi
+    if [[ -n "${MCP_PID:-}" ]]; then
+        kill "$MCP_PID" 2>/dev/null || true
+    fi
+    if [[ -n "${WEB_UI_PID:-}" ]]; then
+        kill "$WEB_UI_PID" 2>/dev/null || true
+    fi
+    wait 2>/dev/null || true
+}
+
+main() {
+    if [[ $# -gt 0 ]]; then
+        exec "$@"
+    fi
+
+    [[ -n "${PUID:-}" ]] && PUID="$(trim "$PUID")"
+    [[ -n "${PGID:-}" ]] && PGID="$(trim "$PGID")"
+
+    PORT="${PORT:-$DEFAULT_PORT}"
+    INTERNAL_PORT="${INTERNAL_PORT:-$DEFAULT_INTERNAL_PORT}"
+    WEB_UI_PORT="${WEB_UI_PORT:-$DEFAULT_WEB_UI_PORT}"
+    PROTOCOL="${PROTOCOL:-$DEFAULT_PROTOCOL}"
+    ENABLE_HTTPS="${ENABLE_HTTPS:-false}"
+    TLS_CERT_PATH="${TLS_CERT_PATH:-/etc/haproxy/certs/server.crt}"
+    TLS_KEY_PATH="${TLS_KEY_PATH:-/etc/haproxy/certs/server.key}"
+    TLS_PEM_PATH="${TLS_PEM_PATH:-/etc/haproxy/certs/server.pem}"
+    TLS_MIN_VERSION="${TLS_MIN_VERSION:-$DEFAULT_TLS_MIN_VERSION}"
+    HTTP_VERSION_MODE="${HTTP_VERSION_MODE:-$DEFAULT_HTTP_VERSION_MODE}"
+    CORS="${CORS:-}"
+    DATA_DIR="${DATA_DIR:-$DEFAULT_DATA_DIR}"
+
+    PORT="$(validate_port "PORT" "$PORT" "$DEFAULT_PORT")"
+    INTERNAL_PORT="$(validate_port "INTERNAL_PORT" "$INTERNAL_PORT" "$DEFAULT_INTERNAL_PORT")"
+    WEB_UI_PORT="$(validate_port "WEB_UI_PORT" "$WEB_UI_PORT" "$DEFAULT_WEB_UI_PORT")"
+    TLS_MIN_VERSION="$(validate_tls_min_version "$TLS_MIN_VERSION" "$DEFAULT_TLS_MIN_VERSION")"
+    HTTP_VERSION_MODE="$(normalize_http_version_mode "$HTTP_VERSION_MODE")"
+
+    validate_api_key
+    validate_cors
+
+    if [[ ! -f "$FIRST_RUN_FILE" ]]; then
+        handle_first_run
+    fi
+
+    # Ensure data directory exists and has correct ownership
+    mkdir -p "$DATA_DIR"
+    chown -R "${PUID}:${PGID}" "$DATA_DIR" 2>/dev/null || true
+
+    if is_true "$ENABLE_HTTPS"; then
+        prepare_tls_pem "$TLS_CERT_PATH" "$TLS_KEY_PATH" "$TLS_PEM_PATH"
+    fi
+
+    resolve_listener_protocols "$HTTP_VERSION_MODE"
+    generate_haproxy_config
+
+    trap shutdown INT TERM EXIT
+
+    # GitNexus-specific: clean, analyze, wiki
+    echo "=========================================="
+    echo "GitNexus Repository Analysis Phase"
+    echo "Data directory: ${DATA_DIR}"
+    echo "=========================================="
+
+    run_gitnexus_clean
+    run_gitnexus_analyze "$DATA_DIR"
+    run_gitnexus_wiki "$DATA_DIR"
+
+    echo "=========================================="
+    echo "Starting GitNexus Services"
+    echo "=========================================="
+
+    start_mcp_server
+    start_web_ui
+    start_haproxy
+
+    if [[ -n "$API_KEY" ]]; then
+        echo "API key authentication enabled"
+    else
+        echo "API key authentication disabled"
+    fi
+
+    if is_true "$ENABLE_HTTPS"; then
+        echo "HTTPS enabled on port ${PORT}"
+        echo "HTTP versions enabled: ${EFFECTIVE_HTTP_VERSIONS}"
+    else
+        echo "HTTPS disabled; listening on HTTP port ${PORT}"
+        echo "WARNING: Traffic is NOT encrypted when ENABLE_HTTPS=false." >&2
+        echo "WARNING: Use ENABLE_HTTPS=true for internet-facing or untrusted networks." >&2
+        if [[ "${NODE_ENV:-}" =~ ^([Pp][Rr][Oo][Dd][Uu][Cc][Tt][Ii][Oo][Nn])$ ]]; then
+            echo "====================================================================" >&2
+            echo "SECURITY WARNING: NODE_ENV=production with ENABLE_HTTPS=false" >&2
+            echo "SECURITY WARNING: Requests and responses are plaintext over the network." >&2
+            echo "SECURITY WARNING: Enable TLS now by setting ENABLE_HTTPS=true." >&2
+            echo "====================================================================" >&2
+        fi
+        if [[ -n "$API_KEY" ]]; then
+            echo "WARNING: API_KEY protects access but does not encrypt HTTP traffic." >&2
+        fi
+    fi
+
+    echo "=========================================="
+    echo "GitNexus MCP Server: port ${PORT} (${PROTOCOL_DISPLAY})"
+    if is_true "${ENABLE_WEB_UI:-true}"; then
+        echo "GitNexus Web UI:     port ${WEB_UI_PORT}"
+    fi
+    echo "=========================================="
+
+    # Wait for any child process to exit
+    local pids=("$MCP_PID" "$HAPROXY_PID")
+    if [[ -n "${WEB_UI_PID:-}" ]]; then
+        pids+=("$WEB_UI_PID")
+    fi
+    wait -n "${pids[@]}"
+}
+
+main "$@"

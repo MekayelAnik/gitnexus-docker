@@ -12,7 +12,7 @@ if [[ -z "${GITHUB_OUTPUT:-}" ]]; then
     exit 1
 fi
 
-DATE_TAG="$(date +%d%m%Y)"
+DATE_TAG="$(date +%Y%m%d)"
 echo "date_tag=$DATE_TAG" >> "$GITHUB_OUTPUT"
 
 if [[ -n "$MANUAL_VERSIONS_RAW" && "$REQUESTED_ACTION" == "build-versions" ]]; then

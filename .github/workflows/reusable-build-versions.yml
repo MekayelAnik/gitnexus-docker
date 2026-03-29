@@ -177,7 +177,7 @@ jobs:
           provenance: false
           sbom: false
 
-      - name: Sync Docker Hub from GHCR (secondary mirror)
+      - name: Sync Docker Hub (secondary mirror) from GHCR (primary mirror)
         uses: ./.github/actions/registry-sync
         with:
           dockerhub_repo: ${{ steps.sanitize.outputs.dockerhub_repo }}

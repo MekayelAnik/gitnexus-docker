@@ -55,18 +55,54 @@ RUN apt-get update && \
 # Create the data directory for repositories
 RUN mkdir -p /data && chown node:node /data
 
-# Install build tools, compile native deps, then remove build tools in single layer
+# Install build tools, compile native deps, optimize, then remove build tools in single layer
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    python3 make g++ && \
+    python3 make g++ binutils && \
     echo "Installing ${GITNEXUS_MCP_PKG}..." && \
     npm install -g ${GITNEXUS_MCP_PKG} --omit=dev --no-audit --no-fund --loglevel error && \
     echo "Installing Supergateway..." && \
     npm install -g ${SUPERGATEWAY_PKG} --omit=dev --no-audit --no-fund --loglevel error && \
+    # --- Size optimizations (saves ~60-120 MB) --- \
+    # 1. Strip native binaries \
+    find /usr/local/lib/node_modules -name '*.node' -exec strip --strip-all {} + 2>/dev/null || true && \
+    find /usr/local/lib/node_modules -name '*.so*' -exec strip --strip-unneeded {} + 2>/dev/null || true && \
+    # 2. Deduplicate onnxruntime .so files (identical copies -> symlinks) \
+    cd /usr/local/lib/node_modules && \
+    find . -path '*/onnxruntime-node/bin/napi-v3/linux/*' -name 'libonnxruntime.so.*.*.*' | while read f; do \
+      dir=\$(dirname "\$f"); base=\$(echo "\$f" | sed 's/\.[0-9]*\.[0-9]*\$//'); \
+      if [ -f "\$base" ] && [ ! -L "\$base" ]; then ln -sf "\$(basename "\$f")" "\$base"; fi; \
+    done 2>/dev/null || true && \
+    # 3. Remove non-native-platform onnxruntime binaries \
+    find . -path '*/onnxruntime-node/bin/napi-v3/*' -mindepth 1 -maxdepth 1 -type d | while read d; do \
+      case "\$d" in */linux_*) ;; *) rm -rf "\$d" ;; esac; \
+    done 2>/dev/null || true && \
+    cd / && \
+    # 4. Remove tree-sitter build artifacts \
+    find /usr/local/lib/node_modules -path '*/tree-sitter*' \( -name '*.o' -o -name '*.a' -o -name '*.cc' -o -name '*.c' -o -name '*.h' \) -delete 2>/dev/null || true && \
+    find /usr/local/lib/node_modules -path '*/tree-sitter*/build' -type d -exec rm -rf {} + 2>/dev/null || true && \
+    find /usr/local/lib/node_modules -path '*/tree-sitter*/src' -type d -exec rm -rf {} + 2>/dev/null || true && \
+    # 5. Remove node_modules junk (docs, tests, maps, editor configs) \
+    find /usr/local/lib/node_modules \( \
+      -name '*.md' -o -name '*.map' -o -name '*.ts' ! -name '*.d.ts' -o \
+      -name 'LICENSE*' -o -name 'CHANGELOG*' -o -name 'HISTORY*' -o \
+      -name '.eslintrc*' -o -name '.prettierrc*' -o -name '.editorconfig' -o \
+      -name '.npmignore' -o -name '.travis.yml' -o -name '.github' -o \
+      -name 'tsconfig.json' -o -name 'jest.config*' -o -name '.nycrc*' -o \
+      -name 'Makefile' -o -name 'Gruntfile*' -o -name 'Gulpfile*' -o \
+      -name '*.gyp' -o -name '*.gypi' -o -name 'binding.gyp' \
+    \) -delete 2>/dev/null || true && \
+    find /usr/local/lib/node_modules -type d \( \
+      -name 'test' -o -name 'tests' -o -name '__tests__' -o \
+      -name 'example' -o -name 'examples' -o -name 'docs' -o \
+      -name '.github' -o -name 'benchmark' -o -name 'benchmarks' \
+    \) -exec rm -rf {} + 2>/dev/null || true && \
+    # 6. Clean npm and build caches \
     npm cache clean --force && \
     rm -rf /root/.npm /tmp/* /var/tmp/* && \
     rm -rf /usr/local/lib/node_modules/npm/man /usr/local/lib/node_modules/npm/docs /usr/local/lib/node_modules/npm/html && \
-    apt-get purge -y python3 make g++ && \
+    # 7. Remove build tools \
+    apt-get purge -y python3 make g++ binutils && \
     apt-get autoremove -y && \
     rm -rf /var/lib/apt/lists/*
 

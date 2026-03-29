@@ -611,7 +611,14 @@ main() {
 
     # Ensure data directory exists and has correct ownership
     mkdir -p "$DATA_DIR"
-    chown -R "${PUID}:${PGID}" "$DATA_DIR" 2>/dev/null || true
+    chown "${PUID}:${PGID}" "$DATA_DIR" 2>/dev/null || true
+    # Only chown the top-level data dir, not recursively into mounted repos
+    # This preserves original file ownership in mounted volumes
+    for subdir in "$DATA_DIR"/*/; do
+        if [[ -d "$subdir" ]]; then
+            chown "${PUID}:${PGID}" "$subdir" 2>/dev/null || true
+        fi
+    done
 
     if is_true "$ENABLE_HTTPS"; then
         prepare_tls_pem "$TLS_CERT_PATH" "$TLS_KEY_PATH" "$TLS_PEM_PATH"

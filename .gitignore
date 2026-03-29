@@ -3,10 +3,9 @@ build_data
 resources/build_data
 resources/build-timestamp
 resources/tag
-Dockerfile.gitnexus-mcp
+/Dockerfile.gitnexus-mcp
 /.vs
 example/
-/Dockerfile.gitnexus-mcp
 /Dockerfile
 .buildx-cache
 .git

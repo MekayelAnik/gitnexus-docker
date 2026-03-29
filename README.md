@@ -13,7 +13,7 @@
 
 ---
 
-> **Disclaimer:** This is an **unofficial** Docker image. GitNexus is developed and maintained by [Abhigyan Patwari / Akon Labs](https://github.com/abhigyanpatwari/GitNexus). The upstream project is licensed under the [PolyForm Noncommercial License 1.0.0](https://github.com/abhigyanpatwari/GitNexus/blob/main/LICENSE). This Docker packaging is independently maintained by [Mohammad Mekayel Anik](https://github.com/MekayelAnik) under the MIT license.
+> **Disclaimer:** This is an **unofficial** Docker image. GitNexus is developed and maintained by [Abhigyan Patwari / Akon Labs](https://github.com/abhigyanpatwari/GitNexus). The upstream project is licensed under the [PolyForm Noncommercial License 1.0.0](https://github.com/abhigyanpatwari/GitNexus/blob/main/LICENSE). This Docker packaging is independently maintained by [Mohammad Mekayel Anik](https://github.com/MekayelAnik) under the GPL v3 license.
 
 ---
 

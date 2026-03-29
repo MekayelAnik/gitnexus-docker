@@ -31,7 +31,7 @@ find "$NM" -path '*/tree-sitter*/src' \( -name '*.cc' -o -name '*.c' -o -name '*
 # 5. Remove node_modules junk (docs, tests, maps, editor configs)
 find "$NM" \( \
     -name '*.md' -o -name '*.map' -o -name '*.ts' ! -name '*.d.ts' -o \
-    -name 'CHANGELOG*' -o -name 'HISTORY*' -o \
+    -name 'LICENSE*' -o -name 'LICENCE*' -o -name 'CHANGELOG*' -o -name 'HISTORY*' -o \
     -name '.eslintrc*' -o -name '.prettierrc*' -o -name '.editorconfig' -o \
     -name '.npmignore' -o -name '.travis.yml' -o -name '.github' -o \
     -name 'tsconfig.json' -o -name 'jest.config*' -o -name '.nycrc*' -o \

@@ -135,12 +135,20 @@ jobs:
             echo "Base image already mirrored at $GHCR_BASE"
             echo "base_image=$GHCR_BASE" >> "$GITHUB_OUTPUT"
           else
-            echo "Mirroring $BASE_IMAGE -> $GHCR_BASE (pulling anonymously from Docker Hub)"
-            if docker buildx imagetools create -t "$GHCR_BASE" "docker.io/library/${BASE_IMAGE}"; then
+            # Try 1: Mirror anonymously (separate rate limit pool)
+            echo "Mirroring $BASE_IMAGE -> $GHCR_BASE (anonymous Docker Hub pull)"
+            if docker buildx imagetools create -t "$GHCR_BASE" "docker.io/library/${BASE_IMAGE}" 2>/dev/null; then
               echo "base_image=$GHCR_BASE" >> "$GITHUB_OUTPUT"
             else
-              echo "::warning::Mirror failed, falling back to Docker Hub"
-              echo "base_image=$BASE_IMAGE" >> "$GITHUB_OUTPUT"
+              # Try 2: Login to Docker Hub and retry with authenticated pull
+              echo "Anonymous pull failed, retrying with Docker Hub authentication..."
+              echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin 2>/dev/null || true
+              if docker buildx imagetools create -t "$GHCR_BASE" "docker.io/library/${BASE_IMAGE}" 2>/dev/null; then
+                echo "base_image=$GHCR_BASE" >> "$GITHUB_OUTPUT"
+              else
+                echo "::warning::Mirror failed with both anonymous and authenticated pulls, falling back to Docker Hub"
+                echo "base_image=$BASE_IMAGE" >> "$GITHUB_OUTPUT"
+              fi
             fi
           fi
 

@@ -2,7 +2,7 @@
 set -ex
 # Set variables first
 REPO_NAME='gitnexus-mcp'
-BASE_IMAGE=$(cat ./build_data/base-image 2>/dev/null || echo "node:current-alpine")
+BASE_IMAGE=$(cat ./build_data/base-image 2>/dev/null || echo "node:22-alpine")
 GITNEXUS_VERSION=$(cat ./build_data/version 2>/dev/null || exit 1)
 GITNEXUS_MCP_PKG="gitnexus@${GITNEXUS_VERSION}"
 SUPERGATEWAY_PKG='supergateway@latest'

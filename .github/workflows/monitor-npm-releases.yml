@@ -164,6 +164,7 @@ jobs:
       latest_version: ${{ steps.releases.outputs.latest_version }}
       date_tag: ${{ steps.releases.outputs.date_tag }}
       should_build: ${{ steps.releases.outputs.should_build }}
+      base_image: ${{ needs.preflight.outputs.base_image }}
 
     steps:
       - name: Checkout
@@ -198,14 +199,14 @@ jobs:
 
   build-versions:
     name: Build selected versions
-    needs: [preflight, fetch-releases]
+    needs: [fetch-releases]
     if: needs.fetch-releases.outputs.should_build == 'true' && needs.fetch-releases.outputs.normalized_action != 'promote-latest'
     uses: ./.github/workflows/reusable-build-versions.yml
     with:
       versions_json: ${{ needs.fetch-releases.outputs.versions_json }}
       build_profile: ${{ github.event.inputs.build_profile || 'production' }}
       force_build: ${{ needs.fetch-releases.outputs.normalized_force_build }}
-      base_image_default: ${{ needs.preflight.outputs.base_image || github.event.inputs.base_image || vars.BASE_IMAGE_DEFAULT || 'node:22-slim' }}
+      base_image_default: ${{ needs.fetch-releases.outputs.base_image || github.event.inputs.base_image || vars.BASE_IMAGE_DEFAULT || 'node:22-slim' }}
       ghcr_repo: ${{ vars.GHCR_REPO || format('ghcr.io/{0}/gitnexus-mcp', github.repository_owner) }}
       dockerhub_repo: ${{ vars.DOCKERHUB_REPO || 'mekayelanik/gitnexus-mcp' }}
       default_platforms: ${{ vars.DEFAULT_PLATFORMS || 'linux/amd64,linux/arm64' }}

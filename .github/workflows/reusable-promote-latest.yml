@@ -54,7 +54,7 @@ jobs:
       - name: Setup promotion environment
         uses: ./.github/actions/setup-build-env
         with:
-          do_checkout: 'true'
+          do_checkout: 'false'
           setup_qemu: 'false'
           setup_buildx: 'true'
           login_dockerhub: 'true'

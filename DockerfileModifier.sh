@@ -46,38 +46,27 @@ RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/banner.sh \
     && mv -vf /usr/local/bin/haproxy.cfg.template /etc/haproxy/haproxy.cfg.template \
     && ls -la /etc/haproxy/haproxy.cfg.template
 
-# Install required packages (Debian-based: haproxy, gosu, build tools for native deps)
+# Install runtime packages
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    bash haproxy gosu netcat-openbsd openssl ca-certificates iproute2 tzdata \
-    python3 make g++ git && \
+    bash haproxy gosu netcat-openbsd openssl ca-certificates iproute2 tzdata git && \
     rm -rf /var/lib/apt/lists/*
 
 # Create the data directory for repositories
 RUN mkdir -p /data && chown node:node /data
 
-# Check if package exists before installing
-RUN echo "Checking if package exists: ${GITNEXUS_MCP_PKG}" && \
-    if npm view ${GITNEXUS_MCP_PKG} >/dev/null 2>&1; then \
-        echo "Package found, installing..." && \
-        npm install -g ${GITNEXUS_MCP_PKG} --omit=dev --no-audit --no-fund --loglevel error && \
-        echo "Package installed successfully"; \
-    else \
-        echo "ERROR: Package ${GITNEXUS_MCP_PKG} not found in registry!" >&2; \
-        echo "Available versions:" && \
-        npm view gitnexus versions --json | tr -d '\[\],' | tr '"' '\n' | grep -v '^\$' | head -10; \
-        exit 1; \
-    fi
-
-# Install Supergateway
-RUN echo "Installing Supergateway..." && \
+# Install build tools, compile native deps, then remove build tools in single layer
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    python3 make g++ && \
+    echo "Installing ${GITNEXUS_MCP_PKG}..." && \
+    npm install -g ${GITNEXUS_MCP_PKG} --omit=dev --no-audit --no-fund --loglevel error && \
+    echo "Installing Supergateway..." && \
     npm install -g ${SUPERGATEWAY_PKG} --omit=dev --no-audit --no-fund --loglevel error && \
     npm cache clean --force && \
     rm -rf /root/.npm /tmp/* /var/tmp/* && \
-    rm -rf /usr/local/lib/node_modules/npm/man /usr/local/lib/node_modules/npm/docs /usr/local/lib/node_modules/npm/html
-
-# Clean up build tools to reduce image size
-RUN apt-get purge -y python3 make g++ && \
+    rm -rf /usr/local/lib/node_modules/npm/man /usr/local/lib/node_modules/npm/docs /usr/local/lib/node_modules/npm/html && \
+    apt-get purge -y python3 make g++ && \
     apt-get autoremove -y && \
     rm -rf /var/lib/apt/lists/*
 

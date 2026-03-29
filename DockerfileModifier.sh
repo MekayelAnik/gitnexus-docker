@@ -2,7 +2,7 @@
 set -ex
 # Set variables first
 REPO_NAME='gitnexus-mcp'
-BASE_IMAGE=$(cat ./build_data/base-image 2>/dev/null || echo "node:22-alpine")
+BASE_IMAGE=$(cat ./build_data/base-image 2>/dev/null || echo "node:22-bookworm-slim")
 GITNEXUS_VERSION=$(cat ./build_data/version 2>/dev/null || exit 1)
 GITNEXUS_MCP_PKG="gitnexus@${GITNEXUS_VERSION}"
 SUPERGATEWAY_PKG='supergateway@latest'
@@ -42,12 +42,12 @@ RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/banner.sh \
     && mv -vf /usr/local/bin/haproxy.cfg.template /etc/haproxy/haproxy.cfg.template \
     && ls -la /etc/haproxy/haproxy.cfg.template
 
-# Install required APK packages (including build tools for native deps)
-RUN echo "https://dl-cdn.alpinelinux.org/alpine/edge/main" > /etc/apk/repositories && \
-    echo "https://dl-cdn.alpinelinux.org/alpine/edge/community" >> /etc/apk/repositories && \
-    apk --update-cache --no-cache add bash shadow su-exec tzdata haproxy netcat-openbsd openssl \
+# Install required packages (Debian-based: haproxy, gosu, build tools for native deps)
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    bash haproxy gosu netcat-openbsd openssl ca-certificates iproute2 tzdata \
     python3 make g++ git && \
-    rm -rf /var/cache/apk/*
+    rm -rf /var/lib/apt/lists/*
 
 # Create the data directory for repositories
 RUN mkdir -p /data && chown node:node /data
@@ -73,8 +73,9 @@ RUN echo "Installing Supergateway..." && \
     rm -rf /usr/local/lib/node_modules/npm/man /usr/local/lib/node_modules/npm/docs /usr/local/lib/node_modules/npm/html
 
 # Clean up build tools to reduce image size
-RUN apk del python3 make g++ 2>/dev/null || true && \
-    rm -rf /var/cache/apk/*
+RUN apt-get purge -y python3 make g++ && \
+    apt-get autoremove -y && \
+    rm -rf /var/lib/apt/lists/*
 
 # Use an ARG for the default port
 ARG PORT=8010

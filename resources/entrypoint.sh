@@ -610,7 +610,8 @@ main() {
         handle_first_run
     fi
 
-    # Show banner after all variables are initialized
+    # Export variables for banner.sh (runs as child process)
+    export PORT PUID PGID WEB_UI_PORT
     /usr/local/bin/banner.sh
 
     # Ensure data directory exists and has correct ownership

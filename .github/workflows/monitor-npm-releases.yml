@@ -113,7 +113,25 @@ jobs:
           # Login to GHCR only (NOT Docker Hub - stay anonymous for pulls)
           echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
+          # Check if already mirrored - try docker first, then anonymous curl fallback
+          GHCR_PATH="${GHCR_BASE#ghcr.io/}"
+          MIRROR_TAG="${GHCR_BASE##*:}"
+          MIRROR_REPO="${GHCR_PATH%:*}"
+          ALREADY_MIRRORED=false
+
           if docker buildx imagetools inspect "$GHCR_BASE" >/dev/null 2>&1; then
+            ALREADY_MIRRORED=true
+          else
+            # Fallback: anonymous GHCR API check
+            API_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+              "https://ghcr.io/v2/${MIRROR_REPO}/manifests/${MIRROR_TAG}" \
+              -H "Accept: application/vnd.oci.image.index.v1+json" 2>/dev/null || echo "000")
+            if [[ "$API_STATUS" == "200" ]]; then
+              ALREADY_MIRRORED=true
+            fi
+          fi
+
+          if [[ "$ALREADY_MIRRORED" == "true" ]]; then
             echo "Base image already mirrored at $GHCR_BASE"
             echo "base_image=$GHCR_BASE" >> "$GITHUB_OUTPUT"
           else

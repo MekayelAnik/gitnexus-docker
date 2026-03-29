@@ -13,7 +13,8 @@ ASH_GRAY='\033[38;5;250m'
 NC='\033[0m'
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" ; pwd -P)
 # Constants
-BUILD_TIMESTAMP=$(cat /usr/local/bin/build-timestamp.txt 2>/dev/null || echo "unknown")
+BUILD_TIMESTAMP_FILE="/usr/local/bin/build-timestamp.txt"
+BUILD_TIMESTAMP=$(cat "$BUILD_TIMESTAMP_FILE" 2>/dev/null || echo "")
 
 # Function to print separator line
 print_separator() {
@@ -73,7 +74,7 @@ printf "${ORANGE} MCP Server PORT: ${GREEN}%s\n${NC}" "${disp_port:-80}"
 printf "${ORANGE} Web UI PORT: ${GREEN}%s\n${NC}\n" "${WEB_UI_PORT:-4747}"
 printf "${ORANGE} ==================================${NC}\n"
 printf "${ERROR_RED} Note: You may need to change the IP address to your host machine IP\n${NC}"
-[[ -f "$BUILD_TIMESTAMP" ]] && BUILD_TIMESTAMP=$(cat "$BUILD_TIMESTAMP") && printf "${ORANGE}${BUILD_TIMESTAMP}${NC}\n"
+[[ -n "$BUILD_TIMESTAMP" ]] && printf "${ORANGE} %s${NC}\n" "$BUILD_TIMESTAMP"
     printf "${BLUE}This Container was started on:${NC} ${GREEN}$(date)${NC}\n"
 }
 

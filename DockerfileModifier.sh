@@ -34,10 +34,14 @@ FROM $BASE_IMAGE AS build
 LABEL org.opencontainers.image.authors="MOHAMMAD MEKAYEL ANIK <mekayel.anik@gmail.com>"
 LABEL org.opencontainers.image.source="https://github.com/mekayelanik/GitNexus-docker"
 
+# Generate build timestamp
+RUN echo "Built: \$(date -u '+%Y-%m-%d %H:%M:%S UTC') | GitNexus v${GITNEXUS_VERSION}" > /tmp/build-timestamp.txt
+
 # Copy the entrypoint script into the container and make it executable
 COPY ./resources/ /usr/local/bin/
 RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/banner.sh \
-    && if [ -f /usr/local/bin/build-timestamp.txt ]; then chmod +r /usr/local/bin/build-timestamp.txt; fi \
+    && mv -f /tmp/build-timestamp.txt /usr/local/bin/build-timestamp.txt \
+    && chmod +r /usr/local/bin/build-timestamp.txt \
     && mkdir -p /etc/haproxy \
     && mv -vf /usr/local/bin/haproxy.cfg.template /etc/haproxy/haproxy.cfg.template \
     && ls -la /etc/haproxy/haproxy.cfg.template

@@ -85,6 +85,7 @@
 - **Docker Engine:** 23.0+
 - **RAM:** Minimum 1GB (2GB+ recommended for embedding generation)
 - **CPU:** Single core sufficient (multi-core recommended for analysis)
+- **GPU:** Optional NVIDIA GPU for accelerated embedding generation (see [GPU Support](#gpu-support))
 - **Storage:** Depends on repository sizes being indexed
 
 > **CRITICAL:** Do NOT expose this container directly to the internet without proper security measures (reverse proxy, SSL/TLS, authentication, firewall rules).
@@ -305,6 +306,53 @@ environment:
   - WIKI_MODEL=your-model-name
   - OPENAI_API_KEY=not-needed
 ```
+
+---
+
+## GPU Support
+
+GitNexus uses [onnxruntime-node](https://www.npmjs.com/package/onnxruntime-node) for embedding generation via HuggingFace transformers.js. NVIDIA GPUs can significantly accelerate this process.
+
+### Supported GPUs
+
+| GPU | Status | Notes |
+|:----|:------:|:------|
+| **NVIDIA (CUDA)** | Supported | Requires NVIDIA Container Toolkit on host |
+| **AMD (ROCm)** | Not supported | onnxruntime-node lacks ROCm support |
+| **Intel (oneAPI)** | Not supported | onnxruntime-node lacks oneAPI support |
+
+### Docker Compose (NVIDIA GPU)
+
+```yaml
+services:
+  gitnexus-mcp:
+    image: mekayelanik/gitnexus-mcp:stable
+    # ... other config ...
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [compute, utility]
+```
+
+### Docker CLI (NVIDIA GPU)
+
+```bash
+docker run -d \
+  --gpus all \
+  --name=gitnexus-mcp \
+  # ... other flags ...
+  mekayelanik/gitnexus-mcp:stable
+```
+
+### Prerequisites
+
+1. Install [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) on the host
+2. Verify with: `docker run --rm --gpus all nvidia/cuda:12.0-base nvidia-smi`
+
+The container automatically uses GPU when available and falls back to CPU when not. No additional environment variables needed.
 
 ---
 

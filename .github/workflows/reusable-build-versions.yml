@@ -134,35 +134,14 @@ jobs:
           fi
           echo "$SKIP_LINE" >> "$GITHUB_OUTPUT"
 
-      - name: Mirror base image to GHCR (avoid Docker Hub rate limits)
-        if: steps.check-existing.outputs.skip_build != 'true'
-        id: mirror-base
-        shell: bash
-        run: |
-          set -euo pipefail
-          BASE_IMAGE="${{ steps.sanitize.outputs.base_image_default }}"
-          # Convert e.g. "node:22-slim" to "ghcr.io/<owner>/base-images/node:22-slim"
-          GHCR_BASE="ghcr.io/${{ github.repository_owner }}/base-images/${BASE_IMAGE}"
-
-          if docker buildx imagetools inspect "$GHCR_BASE" >/dev/null 2>&1; then
-            echo "Base image already mirrored at $GHCR_BASE"
-          else
-            echo "Mirroring $BASE_IMAGE -> $GHCR_BASE"
-            docker buildx imagetools create -t "$GHCR_BASE" "docker.io/library/${BASE_IMAGE}" || {
-              echo "::warning::Mirror failed, falling back to Docker Hub"
-              GHCR_BASE="$BASE_IMAGE"
-            }
-          fi
-          echo "base_image=$GHCR_BASE" >> "$GITHUB_OUTPUT"
-
       - name: Generate Dockerfile via DockerfileModifier.sh
         if: steps.check-existing.outputs.skip_build != 'true'
         shell: bash
         run: |
           set -euo pipefail
-          echo "Using base image: ${{ steps.mirror-base.outputs.base_image }}"
+          echo "Using base image: ${{ steps.sanitize.outputs.base_image_default }}"
           mkdir -p build_data
-          echo "${{ steps.mirror-base.outputs.base_image }}" > ./build_data/base-image
+          echo "${{ steps.sanitize.outputs.base_image_default }}" > ./build_data/base-image
           echo "${{ matrix.version }}" > ./build_data/version
           touch ./build_data/build
           bash ./DockerfileModifier.sh
@@ -194,7 +173,7 @@ jobs:
           build-args: |
             BUILDKIT_INLINE_CACHE=1
             GITNEXUS_VERSION=${{ matrix.version }}
-            BASE_IMAGE=${{ steps.mirror-base.outputs.base_image }}
+            BASE_IMAGE=${{ steps.sanitize.outputs.base_image_default }}
           provenance: false
           sbom: false
 

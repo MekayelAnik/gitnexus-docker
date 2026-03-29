@@ -112,6 +112,10 @@ ARG PORT=8010
 # Add ARG for API key
 ARG API_KEY=""
 
+# NVIDIA GPU support (used by onnxruntime when host passes --gpus)
+ENV NVIDIA_VISIBLE_DEVICES=all
+ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility
+
 # Set ENV variables for runtime
 ENV PORT=\${PORT}
 ENV API_KEY=\${API_KEY}

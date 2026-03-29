@@ -611,7 +611,7 @@ main() {
     fi
 
     # Export variables for banner.sh (runs as child process)
-    export PORT PUID PGID WEB_UI_PORT
+    export PORT PUID PGID WEB_UI_PORT PROTOCOL DATA_DIR
     /usr/local/bin/banner.sh
 
     # Ensure data directory exists and has correct ownership

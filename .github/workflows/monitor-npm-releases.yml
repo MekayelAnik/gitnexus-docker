@@ -33,7 +33,7 @@ on:
           - size-optimized
         default: production
       base_image:
-        description: 'Base image override (example: node:22-slim)'
+        description: 'Base image override (example: node:lts-trixie-slim)'
         required: false
         type: string
         default: ''
@@ -59,7 +59,7 @@ env:
   DOCKERHUB_REPO: ${{ vars.DOCKERHUB_REPO || 'mekayelanik/gitnexus-mcp' }}
   GHCR_REPO: ${{ vars.GHCR_REPO || format('ghcr.io/{0}/gitnexus-mcp', github.repository_owner) }}
   DEFAULT_PLATFORMS: ${{ vars.DEFAULT_PLATFORMS || 'linux/amd64,linux/arm64' }}
-  BASE_IMAGE_DEFAULT: ${{ github.event.inputs.base_image || vars.BASE_IMAGE_DEFAULT || 'node:22-slim' }}
+  BASE_IMAGE_DEFAULT: ${{ github.event.inputs.base_image || vars.BASE_IMAGE_DEFAULT || 'node:lts-trixie-slim' }}
   EXPORT_CACHE_CONCURRENCY: '4'
   EXPORT_LAYERS_CONCURRENCY: '4'
   BUILDKIT_STEP_LOG_MAX_SIZE: '50000000'
@@ -146,7 +146,7 @@ jobs:
       versions_json: ${{ needs.fetch-releases.outputs.versions_json }}
       build_profile: ${{ github.event.inputs.build_profile || 'production' }}
       force_build: ${{ needs.fetch-releases.outputs.normalized_force_build }}
-      base_image_default: ${{ github.event.inputs.base_image || vars.BASE_IMAGE_DEFAULT || 'node:22-slim' }}
+      base_image_default: ${{ github.event.inputs.base_image || vars.BASE_IMAGE_DEFAULT || 'node:lts-trixie-slim' }}
       ghcr_repo: ${{ vars.GHCR_REPO || format('ghcr.io/{0}/gitnexus-mcp', github.repository_owner) }}
       dockerhub_repo: ${{ vars.DOCKERHUB_REPO || 'mekayelanik/gitnexus-mcp' }}
       default_platforms: ${{ vars.DEFAULT_PLATFORMS || 'linux/amd64,linux/arm64' }}

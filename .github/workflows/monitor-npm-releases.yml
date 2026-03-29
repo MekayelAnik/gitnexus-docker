@@ -165,9 +165,17 @@ jobs:
       latest_version: ${{ steps.releases.outputs.latest_version }}
       date_tag: ${{ steps.releases.outputs.date_tag }}
       should_build: ${{ steps.releases.outputs.should_build }}
-      base_image: ${{ needs.preflight.outputs.base_image }}
+      base_image: ${{ steps.forward-base.outputs.base_image }}
 
     steps:
+      - name: Forward base image from preflight
+        id: forward-base
+        shell: bash
+        run: |
+          BASE_IMG="${{ needs.preflight.outputs.base_image }}"
+          echo "Preflight base image: $BASE_IMG"
+          echo "base_image=$BASE_IMG" >> "$GITHUB_OUTPUT"
+
       - name: Checkout
         uses: actions/checkout@v4
 

@@ -520,7 +520,7 @@ start_mcp_server() {
     echo "Launching GitNexus MCP with protocol: ${PROTOCOL_DISPLAY}"
 
     if [ "$(id -u)" -eq 0 ]; then
-        su-exec node "${CMD_ARGS[@]}" &
+        gosu node "${CMD_ARGS[@]}" &
     else
         "${CMD_ARGS[@]}" &
     fi
@@ -553,7 +553,7 @@ start_web_ui() {
     echo "Starting GitNexus Web UI on port ${WEB_UI_PORT}"
 
     if [ "$(id -u)" -eq 0 ]; then
-        su-exec node gitnexus serve --port "$WEB_UI_PORT" &
+        gosu node gitnexus serve --port "$WEB_UI_PORT" &
     else
         gitnexus serve --port "$WEB_UI_PORT" &
     fi

@@ -579,8 +579,10 @@ main() {
         exec "$@"
     fi
 
-    [[ -n "${PUID:-}" ]] && PUID="$(trim "$PUID")"
-    [[ -n "${PGID:-}" ]] && PGID="$(trim "$PGID")"
+    PUID="${PUID:-$DEFAULT_PUID}"
+    PGID="${PGID:-$DEFAULT_PGID}"
+    PUID="$(trim "$PUID")"
+    PGID="$(trim "$PGID")"
 
     PORT="${PORT:-$DEFAULT_PORT}"
     INTERNAL_PORT="${INTERNAL_PORT:-$DEFAULT_INTERNAL_PORT}"

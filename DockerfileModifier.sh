@@ -1,5 +1,5 @@
 #!/bin/bash
-set -ex
+set -euxo pipefail
 # Set variables first
 REPO_NAME='gitnexus-mcp'
 BASE_IMAGE=$(cat ./build_data/base-image 2>/dev/null || echo "node:22-slim")
@@ -87,9 +87,10 @@ ARG PORT=8010
 # Add ARG for API key
 ARG API_KEY=""
 
-# Set an ENV variable from the ARG for runtime
+# Set ENV variables for runtime
 ENV PORT=\${PORT}
 ENV API_KEY=\${API_KEY}
+ENV DATA_DIR=/data
 
 # Health check using nc (netcat) to check if the port is open
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \\

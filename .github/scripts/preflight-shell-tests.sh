@@ -2,6 +2,7 @@
 set -euo pipefail
 
 bash -n resources/entrypoint.sh
+bash -n resources/banner.sh
 bash -n DockerfileModifier.sh
 bash -n .github/scripts/normalize-dispatch-inputs.sh
 bash -n .github/scripts/fetch-releases.sh

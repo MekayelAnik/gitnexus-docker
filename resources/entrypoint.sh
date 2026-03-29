@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 set -euo pipefail
-/usr/local/bin/banner.sh
 
 readonly DEFAULT_PUID=1000
 readonly DEFAULT_PGID=1000
@@ -608,6 +607,9 @@ main() {
     if [[ ! -f "$FIRST_RUN_FILE" ]]; then
         handle_first_run
     fi
+
+    # Show banner after all variables are initialized
+    /usr/local/bin/banner.sh
 
     # Ensure data directory exists and has correct ownership
     mkdir -p "$DATA_DIR"

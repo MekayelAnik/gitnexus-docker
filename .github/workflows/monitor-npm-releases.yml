@@ -198,7 +198,7 @@ jobs:
 
   build-versions:
     name: Build selected versions
-    needs: [fetch-releases]
+    needs: [preflight, fetch-releases]
     if: needs.fetch-releases.outputs.should_build == 'true' && needs.fetch-releases.outputs.normalized_action != 'promote-latest'
     uses: ./.github/workflows/reusable-build-versions.yml
     with:

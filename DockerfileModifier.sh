@@ -50,7 +50,7 @@ RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/banner.sh /usr/local/bi
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     bash haproxy gosu netcat-openbsd openssl ca-certificates iproute2 tzdata git && \
-    rm -rf /var/lib/apt/lists/*
+    rm -rf /var/lib/apt/lists/* /usr/share/doc /usr/share/man /usr/share/info /usr/share/locale /usr/share/lintian
 
 # Create the data directory for repositories
 RUN mkdir -p /data && chown node:node /data
@@ -67,7 +67,7 @@ RUN apt-get update && \
     rm -f /usr/local/bin/optimize.sh && \
     apt-get purge -y python3 make g++ binutils && \
     apt-get autoremove -y && \
-    rm -rf /var/lib/apt/lists/*
+    rm -rf /var/lib/apt/lists/* /usr/share/doc /usr/share/man /usr/share/info /usr/share/locale /usr/share/lintian /var/log/*.log
 
 # Use an ARG for the default port
 ARG PORT=8010

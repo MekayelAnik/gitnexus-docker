@@ -79,11 +79,11 @@ RUN apt-get update && \
     done 2>/dev/null || true && \
     cd / && \
     # 4. Remove tree-sitter build artifacts (keep src/*.json, src/*.wasm for runtime) \
-    find /usr/local/lib/node_modules -path '*/tree-sitter*' \( -name '*.o' -o -name '*.a' \) -delete 2>/dev/null || true && \
+    find /usr/local/lib/node_modules -path '*/tree-sitter*' \\( -name '*.o' -o -name '*.a' \\) -delete 2>/dev/null || true && \
     find /usr/local/lib/node_modules -path '*/tree-sitter*/build' -type d -exec rm -rf {} + 2>/dev/null || true && \
-    find /usr/local/lib/node_modules -path '*/tree-sitter*/src' \( -name '*.cc' -o -name '*.c' -o -name '*.h' \) -delete 2>/dev/null || true && \
+    find /usr/local/lib/node_modules -path '*/tree-sitter*/src' \\( -name '*.cc' -o -name '*.c' -o -name '*.h' \\) -delete 2>/dev/null || true && \
     # 5. Remove node_modules junk (docs, tests, maps, editor configs) \
-    find /usr/local/lib/node_modules \( \
+    find /usr/local/lib/node_modules \\( \
       -name '*.md' -o -name '*.map' -o -name '*.ts' ! -name '*.d.ts' -o \
       -name 'CHANGELOG*' -o -name 'HISTORY*' -o \
       -name '.eslintrc*' -o -name '.prettierrc*' -o -name '.editorconfig' -o \
@@ -91,12 +91,12 @@ RUN apt-get update && \
       -name 'tsconfig.json' -o -name 'jest.config*' -o -name '.nycrc*' -o \
       -name 'Makefile' -o -name 'Gruntfile*' -o -name 'Gulpfile*' -o \
       -name '*.gyp' -o -name '*.gypi' -o -name 'binding.gyp' \
-    \) -delete 2>/dev/null || true && \
-    find /usr/local/lib/node_modules -type d \( \
+    \\) -delete 2>/dev/null || true && \
+    find /usr/local/lib/node_modules -type d \\( \
       -name 'test' -o -name 'tests' -o -name '__tests__' -o \
       -name 'example' -o -name 'examples' -o -name 'docs' -o \
       -name '.github' -o -name 'benchmark' -o -name 'benchmarks' \
-    \) -exec rm -rf {} + 2>/dev/null || true && \
+    \\) -exec rm -rf {} + 2>/dev/null || true && \
     # 6. Clean npm and build caches \
     npm cache clean --force && \
     rm -rf /root/.npm /tmp/* /var/tmp/* && \

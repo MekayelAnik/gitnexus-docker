@@ -76,8 +76,7 @@
 
 | Tag | Stability | Description | Use Case |
 |:----|:---------:|:------------|:---------|
-| `stable` | Production | Most stable release | **Recommended for production** |
-| `latest` | Production | Latest stable release | Stay current with stable features |
+| `latest` | Production | Latest stable release | **Recommended for production** |
 | `1.4.10` | Production | Specific version | Version pinning for consistency |
 
 ### System Requirements
@@ -99,7 +98,7 @@
 ```yaml
 services:
   gitnexus-mcp:
-    image: mekayelanik/gitnexus-mcp:stable
+    image: mekayelanik/gitnexus-mcp:latest
     container_name: gitnexus-mcp
     restart: unless-stopped
     ports:
@@ -160,7 +159,7 @@ docker run -d \
   -e HTTP_VERSION_MODE=auto \
   -e DATA_DIR=/data \
   -e ANALYZE_SKIP_EMBEDDINGS=true \
-  mekayelanik/gitnexus-mcp:stable
+  mekayelanik/gitnexus-mcp:latest
 ```
 
 ### Full-Featured Docker Compose (GPU + HTTPS + Wiki + Auth)
@@ -168,7 +167,7 @@ docker run -d \
 ```yaml
 services:
   gitnexus-mcp:
-    image: mekayelanik/gitnexus-mcp:stable
+    image: mekayelanik/gitnexus-mcp:latest
     container_name: gitnexus-mcp
     restart: unless-stopped
     ports:
@@ -250,7 +249,7 @@ docker run -d \
   -e WIKI_ENABLED=true \
   -e OPENAI_API_KEY=sk-your-key-here \
   -e WIKI_MODEL=gpt-4o-mini \
-  mekayelanik/gitnexus-mcp:stable
+  mekayelanik/gitnexus-mcp:latest
 ```
 
 ### Local Ollama + GitNexus (Docker Compose)
@@ -258,7 +257,7 @@ docker run -d \
 ```yaml
 services:
   gitnexus-mcp:
-    image: mekayelanik/gitnexus-mcp:stable
+    image: mekayelanik/gitnexus-mcp:latest
     container_name: gitnexus-mcp
     restart: unless-stopped
     ports:
@@ -460,7 +459,7 @@ GitNexus uses [onnxruntime-node](https://www.npmjs.com/package/onnxruntime-node)
 ```yaml
 services:
   gitnexus-mcp:
-    image: mekayelanik/gitnexus-mcp:stable
+    image: mekayelanik/gitnexus-mcp:latest
     # ... other config ...
     deploy:
       resources:
@@ -478,7 +477,7 @@ docker run -d \
   --gpus all \
   --name=gitnexus-mcp \
   # ... other flags ...
-  mekayelanik/gitnexus-mcp:stable
+  mekayelanik/gitnexus-mcp:latest
 ```
 
 ### Prerequisites
@@ -615,7 +614,7 @@ mcp-inspector http://host-ip:8010/mcp
 ```yaml
 services:
   gitnexus-mcp:
-    image: mekayelanik/gitnexus-mcp:stable
+    image: mekayelanik/gitnexus-mcp:latest
     ports:
       - "8010:8010"
       - "4747:4747"
@@ -631,7 +630,7 @@ services:
 ```yaml
 services:
   gitnexus-mcp:
-    image: mekayelanik/gitnexus-mcp:stable
+    image: mekayelanik/gitnexus-mcp:latest
     network_mode: host
 ```
 
@@ -646,7 +645,7 @@ services:
 ```yaml
 services:
   gitnexus-mcp:
-    image: mekayelanik/gitnexus-mcp:stable
+    image: mekayelanik/gitnexus-mcp:latest
     mac_address: "AB:BC:CD:DE:EF:01"
     networks:
       macvlan-net:
@@ -682,7 +681,7 @@ docker image prune -f
 ### Docker CLI
 
 ```bash
-docker pull mekayelanik/gitnexus-mcp:stable
+docker pull mekayelanik/gitnexus-mcp:latest
 docker stop gitnexus-mcp && docker rm gitnexus-mcp
 # Run your original docker run command
 docker image prune -f
@@ -707,7 +706,7 @@ docker run --rm \
 - Docker Engine 23.0+
 - Ports 8010 and 4747 available
 - Sufficient startup time (ARM devices: 60-120s)
-- Latest stable image
+- Latest image
 - Correct DATA_DIR with repository subdirectories
 
 ### Common Issues

@@ -67,7 +67,7 @@ RUN apt-get update && \
     rm -f /usr/local/bin/optimize.sh && \
     apt-get purge -y python3 make g++ binutils && \
     apt-get autoremove -y && \
-    rm -rf /var/lib/apt/lists/* /usr/share/doc /usr/share/man /usr/share/info /usr/share/locale /usr/share/lintian /var/log/*.log
+    rm -rf /var/lib/apt/lists/* /var/cache/apt/* /usr/share/doc /usr/share/man /usr/share/info /usr/share/locale /usr/share/lintian /var/log/*.log
 
 # Use an ARG for the default port
 ARG PORT=8010

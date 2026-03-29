@@ -322,27 +322,70 @@ When HTTPS is enabled (`ENABLE_HTTPS=true`), use TLS endpoints:
 
 ## Configuration
 
-### Core Environment Variables
+### Complete Environment Variables Reference
 
-| Variable | Default | Description |
-|:---------|:-------:|:------------|
-| `PORT` | `8010` | External HAProxy port for MCP endpoint |
-| `INTERNAL_PORT` | `38011` | Internal supergateway port |
-| `WEB_UI_PORT` | `4747` | GitNexus Web UI port |
-| `PUID` | `1000` | User ID for file permissions |
-| `PGID` | `1000` | Group ID for file permissions |
-| `TZ` | `Asia/Dhaka` | Container timezone ([TZ database](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones)) |
-| `NODE_ENV` | `production` | Node.js environment |
-| `PROTOCOL` | `SHTTP` | MCP transport: `SHTTP`, `SSE`, or `WS` |
-| `API_KEY` | *(empty)* | Enables Bearer token auth (`Authorization: Bearer <API_KEY>`) |
-| `CORS` | *(empty)* | Comma-separated CORS origins, supports `*` |
-| `ENABLE_HTTPS` | `false` | Enables TLS termination in HAProxy (requires your own certs) |
-| `TLS_CERT_PATH` | `/etc/haproxy/certs/server.crt` | TLS cert path |
-| `TLS_KEY_PATH` | `/etc/haproxy/certs/server.key` | TLS private key path |
-| `TLS_PEM_PATH` | `/etc/haproxy/certs/server.pem` | Combined PEM file used by HAProxy |
-| `TLS_MIN_VERSION` | `TLSv1.3` | Minimum TLS protocol (`TLSv1.2` or `TLSv1.3`) |
-| `HTTP_VERSION_MODE` | `auto` | `auto`, `all`, `h1`, `h2`, `h3`, `h1+h2` |
-| `ENABLE_WEB_UI` | `true` | Enable/disable GitNexus Web UI |
+#### Networking & Ports
+
+| Variable | Default | Possible Values | Description |
+|:---------|:-------:|:----------------|:------------|
+| `PORT` | `8010` | `1`-`65535` | External HAProxy port for MCP endpoint |
+| `INTERNAL_PORT` | `38011` | `1`-`65535` | Internal supergateway port (should not conflict with PORT) |
+| `WEB_UI_PORT` | `4747` | `1`-`65535` | GitNexus Web UI port |
+| `PROTOCOL` | `SHTTP` | `SHTTP`, `SSE`, `WS` | MCP transport protocol |
+
+#### Security & TLS
+
+| Variable | Default | Possible Values | Description |
+|:---------|:-------:|:----------------|:------------|
+| `API_KEY` | *(empty)* | 5-256 printable chars | Enables Bearer token auth (`Authorization: Bearer <key>`) |
+| `CORS` | *(empty)* | `*`, comma-separated origins | CORS allowed origins (e.g. `https://example.com,http://localhost:3000`) |
+| `ENABLE_HTTPS` | `false` | `true`, `false` | Enables TLS termination in HAProxy (requires your own certs) |
+| `TLS_CERT_PATH` | `/etc/haproxy/certs/server.crt` | Any valid path | Path to TLS certificate file |
+| `TLS_KEY_PATH` | `/etc/haproxy/certs/server.key` | Any valid path | Path to TLS private key file |
+| `TLS_PEM_PATH` | `/etc/haproxy/certs/server.pem` | Any valid path | Combined PEM file (auto-generated from cert+key) |
+| `TLS_MIN_VERSION` | `TLSv1.3` | `TLSv1.2`, `TLSv1.3` | Minimum TLS protocol version |
+| `HTTP_VERSION_MODE` | `auto` | `auto`, `all`, `h1`, `h2`, `h3`, `h1+h2` | HTTP protocol versions to enable |
+
+#### Container & System
+
+| Variable | Default | Possible Values | Description |
+|:---------|:-------:|:----------------|:------------|
+| `PUID` | `1000` | Any positive integer | User ID for file permissions |
+| `PGID` | `1000` | Any positive integer | Group ID for file permissions |
+| `TZ` | `Asia/Dhaka` | [TZ database names](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones) | Container timezone |
+| `NODE_ENV` | `production` | `production`, `development` | Node.js environment |
+| `ENABLE_WEB_UI` | `true` | `true`, `false` | Enable/disable GitNexus Web UI |
+
+#### Repository Analysis
+
+| Variable | Default | Possible Values | Description |
+|:---------|:-------:|:----------------|:------------|
+| `DATA_DIR` | `/data` | Any valid path | Root directory containing repositories to analyze |
+| `ANALYZE_FORCE` | `false` | `true`, `false` | Force full re-index of all repositories |
+| `ANALYZE_SKILLS` | `false` | `true`, `false` | Generate repo-specific skill files from detected communities |
+| `ANALYZE_SKIP_EMBEDDINGS` | `false` | `true`, `false` | Skip embedding generation (faster startup) |
+| `ANALYZE_SKIP_AGENTS_MD` | `false` | `true`, `false` | Preserve custom AGENTS.md/CLAUDE.md edits |
+| `ANALYZE_EMBEDDINGS` | `false` | `true`, `false` | Enable embedding generation (slower, better search) |
+| `ANALYZE_VERBOSE` | `false` | `true`, `false` | Log skipped files when parsers are unavailable |
+
+#### Cleanup
+
+| Variable | Default | Possible Values | Description |
+|:---------|:-------:|:----------------|:------------|
+| `CLEAN_ON_START` | `false` | `true`, `false` | Run `gitnexus clean` before analysis |
+| `CLEAN_ALL_FORCE` | `false` | `true`, `false` | Run `gitnexus clean --all --force` (deletes ALL indexes) |
+
+#### Wiki Generation
+
+| Variable | Default | Possible Values | Description |
+|:---------|:-------:|:----------------|:------------|
+| `WIKI_ENABLED` | `false` | `true`, `false` | Enable wiki generation after analysis |
+| `WIKI_MODEL` | `gpt-4o-mini` | Any model name | LLM model (e.g. `gpt-4o-mini`, `gpt-4o`, `llama3`, `mistral`) |
+| `WIKI_BASE_URL` | *(OpenAI default)* | Any URL | API base URL for LLM provider (e.g. `http://ollama:11434/v1`) |
+| `WIKI_FORCE` | `false` | `true`, `false` | Force full wiki regeneration |
+| `OPENAI_API_KEY` | *(empty)* | Any string | API key for OpenAI or compatible providers |
+
+> **Boolean values:** `true`, `1`, `yes`, `on` are all accepted as truthy. Everything else is falsy.
 
 ### HTTPS Notes
 
@@ -361,28 +404,9 @@ When HTTPS is enabled (`ENABLE_HTTPS=true`), use TLS endpoints:
 
 ## GitNexus-Specific Configuration
 
-### Repository Analysis
+### Volume Mount Structure
 
 On startup, the container analyzes all subdirectories inside `DATA_DIR`. Mount your repositories as subdirectories of the data volume.
-
-| Variable | Default | Description |
-|:---------|:-------:|:------------|
-| `DATA_DIR` | `/data` | Root directory containing repositories to analyze |
-| `ANALYZE_FORCE` | `false` | Force full re-index of all repositories |
-| `ANALYZE_SKILLS` | `false` | Generate repo-specific skill files from detected communities |
-| `ANALYZE_SKIP_EMBEDDINGS` | `false` | Skip embedding generation (faster startup) |
-| `ANALYZE_SKIP_AGENTS_MD` | `false` | Preserve custom AGENTS.md/CLAUDE.md edits |
-| `ANALYZE_EMBEDDINGS` | `false` | Enable embedding generation (slower, better search) |
-| `ANALYZE_VERBOSE` | `false` | Log skipped files when parsers are unavailable |
-
-### Cleanup Options
-
-| Variable | Default | Description |
-|:---------|:-------:|:------------|
-| `CLEAN_ON_START` | `false` | Run `gitnexus clean` before analysis |
-| `CLEAN_ALL_FORCE` | `false` | Run `gitnexus clean --all --force` (deletes ALL indexes) |
-
-### Volume Mount Structure
 
 ```
 /data/                       # DATA_DIR root
@@ -401,15 +425,7 @@ On startup, the container analyzes all subdirectories inside `DATA_DIR`. Mount y
 
 ## Wiki Generation
 
-GitNexus can generate AI-powered wiki documentation for your repositories. It supports both cloud providers (OpenAI, Anthropic) and local AI servers (Ollama, vLLM, llama.cpp, etc.) via the OpenAI-compatible API.
-
-| Variable | Default | Description |
-|:---------|:-------:|:------------|
-| `WIKI_ENABLED` | `false` | Enable wiki generation after analysis |
-| `WIKI_MODEL` | `gpt-4o-mini` | Model to use (e.g., `gpt-4o-mini`, `gpt-4o`, `llama3`, `mistral`) |
-| `WIKI_BASE_URL` | *(gitnexus default)* | API base URL for the LLM provider |
-| `WIKI_FORCE` | `false` | Force full wiki regeneration |
-| `OPENAI_API_KEY` | *(empty)* | API key for OpenAI or compatible providers |
+GitNexus can generate AI-powered wiki documentation for your repositories. It supports both cloud providers (OpenAI, Anthropic) and local AI servers (Ollama, vLLM, llama.cpp, etc.) via the OpenAI-compatible API. See the [Wiki Generation variables](#wiki-generation) in the table above.
 
 ### Example: OpenAI
 

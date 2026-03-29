@@ -71,8 +71,6 @@ jobs:
   preflight:
     name: Preflight checks
     runs-on: ubuntu-latest
-    outputs:
-      base_image: ${{ steps.mirror-base.outputs.base_image }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -95,64 +93,6 @@ jobs:
       - name: Run preflight shell tests
         uses: ./.github/actions/preflight-shell-tests
 
-      - name: Setup Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Mirror base image to GHCR (avoid Docker Hub rate limits)
-        id: mirror-base
-        shell: bash
-        run: |
-          set -euo pipefail
-          BASE_IMAGE="${{ github.event.inputs.base_image || vars.BASE_IMAGE_DEFAULT || 'node:22-trixie-slim' }}"
-          BASE_IMAGE="$(echo "$BASE_IMAGE" | xargs)"
-          OWNER="$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')"
-          GHCR_BASE="ghcr.io/${OWNER}/base-images/${BASE_IMAGE}"
-
-          # Login to GHCR only (NOT Docker Hub - stay anonymous for pulls)
-          echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-
-          # Check if already mirrored - try docker first, then anonymous curl fallback
-          GHCR_PATH="${GHCR_BASE#ghcr.io/}"
-          MIRROR_TAG="${GHCR_BASE##*:}"
-          MIRROR_REPO="${GHCR_PATH%:*}"
-          ALREADY_MIRRORED=false
-
-          if docker buildx imagetools inspect "$GHCR_BASE" >/dev/null 2>&1; then
-            ALREADY_MIRRORED=true
-          else
-            # Fallback: anonymous GHCR API check
-            API_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
-              "https://ghcr.io/v2/${MIRROR_REPO}/manifests/${MIRROR_TAG}" \
-              -H "Accept: application/vnd.oci.image.index.v1+json" 2>/dev/null || echo "000")
-            if [[ "$API_STATUS" == "200" ]]; then
-              ALREADY_MIRRORED=true
-            fi
-          fi
-
-          if [[ "$ALREADY_MIRRORED" == "true" ]]; then
-            echo "Base image already mirrored at $GHCR_BASE"
-            echo "base_image=$GHCR_BASE" >> "$GITHUB_OUTPUT"
-          else
-            # Try 1: Mirror anonymously (separate rate limit pool)
-            echo "Mirroring $BASE_IMAGE -> $GHCR_BASE (anonymous Docker Hub pull)"
-            if docker buildx imagetools create -t "$GHCR_BASE" "docker.io/library/${BASE_IMAGE}" 2>/dev/null; then
-              echo "base_image=$GHCR_BASE" >> "$GITHUB_OUTPUT"
-            else
-              # Try 2: Login to Docker Hub and retry with authenticated pull
-              echo "Anonymous pull failed, retrying with Docker Hub authentication..."
-              echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin 2>/dev/null || true
-              if docker buildx imagetools create -t "$GHCR_BASE" "docker.io/library/${BASE_IMAGE}" 2>/dev/null; then
-                echo "base_image=$GHCR_BASE" >> "$GITHUB_OUTPUT"
-              else
-                echo "::warning::Mirror failed with both anonymous and authenticated pulls, falling back to Docker Hub"
-                echo "base_image=$BASE_IMAGE" >> "$GITHUB_OUTPUT"
-              fi
-            fi
-          fi
-
   fetch-releases:
     name: Fetch and filter NPM releases
     runs-on: ubuntu-latest
@@ -165,17 +105,8 @@ jobs:
       latest_version: ${{ steps.releases.outputs.latest_version }}
       date_tag: ${{ steps.releases.outputs.date_tag }}
       should_build: ${{ steps.releases.outputs.should_build }}
-      base_image: ${{ steps.forward-base.outputs.base_image }}
 
     steps:
-      - name: Forward base image from preflight
-        id: forward-base
-        shell: bash
-        run: |
-          BASE_IMG="${{ needs.preflight.outputs.base_image }}"
-          echo "Preflight base image: $BASE_IMG"
-          echo "base_image=$BASE_IMG" >> "$GITHUB_OUTPUT"
-
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -215,7 +146,7 @@ jobs:
       versions_json: ${{ needs.fetch-releases.outputs.versions_json }}
       build_profile: ${{ github.event.inputs.build_profile || 'production' }}
       force_build: ${{ needs.fetch-releases.outputs.normalized_force_build }}
-      base_image_default: ${{ needs.fetch-releases.outputs.base_image || github.event.inputs.base_image || vars.BASE_IMAGE_DEFAULT || 'node:22-trixie-slim' }}
+      base_image_default: ${{ github.event.inputs.base_image || vars.BASE_IMAGE_DEFAULT || 'node:22-trixie-slim' }}
       ghcr_repo: ${{ vars.GHCR_REPO || format('ghcr.io/{0}/gitnexus-mcp', github.repository_owner) }}
       dockerhub_repo: ${{ vars.DOCKERHUB_REPO || 'mekayelanik/gitnexus-mcp' }}
       default_platforms: ${{ vars.DEFAULT_PLATFORMS || 'linux/amd64,linux/arm64' }}

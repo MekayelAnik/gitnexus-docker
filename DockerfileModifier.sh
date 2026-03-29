@@ -78,14 +78,14 @@ RUN apt-get update && \
       case "\$d" in */linux_*) ;; *) rm -rf "\$d" ;; esac; \
     done 2>/dev/null || true && \
     cd / && \
-    # 4. Remove tree-sitter build artifacts \
-    find /usr/local/lib/node_modules -path '*/tree-sitter*' \( -name '*.o' -o -name '*.a' -o -name '*.cc' -o -name '*.c' -o -name '*.h' \) -delete 2>/dev/null || true && \
+    # 4. Remove tree-sitter build artifacts (keep src/*.json, src/*.wasm for runtime) \
+    find /usr/local/lib/node_modules -path '*/tree-sitter*' \( -name '*.o' -o -name '*.a' \) -delete 2>/dev/null || true && \
     find /usr/local/lib/node_modules -path '*/tree-sitter*/build' -type d -exec rm -rf {} + 2>/dev/null || true && \
-    find /usr/local/lib/node_modules -path '*/tree-sitter*/src' -type d -exec rm -rf {} + 2>/dev/null || true && \
+    find /usr/local/lib/node_modules -path '*/tree-sitter*/src' \( -name '*.cc' -o -name '*.c' -o -name '*.h' \) -delete 2>/dev/null || true && \
     # 5. Remove node_modules junk (docs, tests, maps, editor configs) \
     find /usr/local/lib/node_modules \( \
       -name '*.md' -o -name '*.map' -o -name '*.ts' ! -name '*.d.ts' -o \
-      -name 'LICENSE*' -o -name 'CHANGELOG*' -o -name 'HISTORY*' -o \
+      -name 'CHANGELOG*' -o -name 'HISTORY*' -o \
       -name '.eslintrc*' -o -name '.prettierrc*' -o -name '.editorconfig' -o \
       -name '.npmignore' -o -name '.travis.yml' -o -name '.github' -o \
       -name 'tsconfig.json' -o -name 'jest.config*' -o -name '.nycrc*' -o \

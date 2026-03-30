@@ -146,10 +146,20 @@ jobs:
         run: |
           set -euo pipefail
           echo "Using base image: ${{ steps.sanitize.outputs.base_image_default }}"
-          echo "Using HAProxy image: ${{ steps.sanitize.outputs.haproxy_image }}"
           mkdir -p build_data
           echo "${{ steps.sanitize.outputs.base_image_default }}" > ./build_data/base-image
-          echo "${{ steps.sanitize.outputs.haproxy_image }}" > ./build_data/haproxy-image
+
+          # Resolve HAProxy image with fallback: try GHCR mirror, fall back to Docker Hub
+          HAPROXY_IMG="${{ steps.sanitize.outputs.haproxy_image }}"
+          if ! docker buildx imagetools inspect "$HAPROXY_IMG" >/dev/null 2>&1; then
+            # Strip GHCR prefix (ghcr.io/<owner>/base-images/<image>:<tag> → <image>:<tag>)
+            HAPROXY_FALLBACK="${HAPROXY_IMG##*/}"
+            echo "HAProxy image '$HAPROXY_IMG' not available, falling back to '$HAPROXY_FALLBACK'"
+            HAPROXY_IMG="$HAPROXY_FALLBACK"
+          fi
+          echo "Using HAProxy image: $HAPROXY_IMG"
+          echo "$HAPROXY_IMG" > ./build_data/haproxy-image
+
           echo "${{ matrix.version }}" > ./build_data/version
           touch ./build_data/build
           bash ./DockerfileModifier.sh

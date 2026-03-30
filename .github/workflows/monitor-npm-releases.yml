@@ -105,11 +105,11 @@ jobs:
             exit 0
           fi
 
-          # Get stored state from repo variables
-          STORED_NPM_LATEST="${{ vars.LAST_NPM_LATEST_VERSION || '' }}"
+          # Get stored state from repo variables (empty if not set or no PAT configured)
+          STORED_NPM_LATEST="${{ vars.LAST_NPM_LATEST_VERSION }}"
 
           if [[ -z "$STORED_NPM_LATEST" ]]; then
-            echo "No stored NPM version — first run, running pipeline"
+            echo "No stored NPM version — first run or no PAT configured, running pipeline"
             echo "should_run=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -247,10 +247,11 @@ jobs:
       needs.fetch-releases.outputs.latest_version != '' &&
       (needs.promote-latest.result == 'success' || needs.promote-latest.result == 'skipped')
     runs-on: ubuntu-latest
+    continue-on-error: true
     steps:
       - name: Store latest version in repo variable
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.GH_PAT || github.token }}
         shell: bash
         run: |
           set -euo pipefail
@@ -264,6 +265,8 @@ jobs:
           fi
 
           # Create or update the repo variable
+          # Requires a PAT with 'repo' or 'actions:write' scope stored as GH_PAT secret.
+          # Falls back to GITHUB_TOKEN which may lack variable-write permissions.
           if gh api "repos/${REPO}/actions/variables/LAST_NPM_LATEST_VERSION" --silent 2>/dev/null; then
             gh api "repos/${REPO}/actions/variables/LAST_NPM_LATEST_VERSION" \
               --method PATCH -f value="$LATEST" --silent

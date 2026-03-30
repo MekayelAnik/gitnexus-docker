@@ -3,6 +3,7 @@ set -euxo pipefail
 # Set variables first
 REPO_NAME='gitnexus-mcp'
 BASE_IMAGE=$(cat ./build_data/base-image 2>/dev/null || echo "node:22-trixie-slim")
+HAPROXY_IMAGE=$(cat ./build_data/haproxy-image 2>/dev/null || echo "haproxy:lts")
 GITNEXUS_VERSION=$(cat ./build_data/version 2>/dev/null || exit 1)
 GITNEXUS_MCP_PKG="gitnexus@${GITNEXUS_VERSION}"
 SUPERGATEWAY_PKG='supergateway@latest'
@@ -28,7 +29,7 @@ else
         echo "ARG BASE_IMAGE=$BASE_IMAGE"
         echo "ARG GITNEXUS_VERSION=$GITNEXUS_VERSION"
         cat << EOF
-FROM haproxy:lts AS haproxy-src
+FROM $HAPROXY_IMAGE AS haproxy-src
 FROM $BASE_IMAGE AS build
 
 # Author info:

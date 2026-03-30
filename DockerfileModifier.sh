@@ -28,6 +28,7 @@ else
         echo "ARG BASE_IMAGE=$BASE_IMAGE"
         echo "ARG GITNEXUS_VERSION=$GITNEXUS_VERSION"
         cat << EOF
+FROM haproxy:lts AS haproxy-src
 FROM $BASE_IMAGE AS build
 
 # Author info:
@@ -46,11 +47,14 @@ RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/banner.sh /usr/local/bi
     && mv -vf /usr/local/bin/haproxy.cfg.template /etc/haproxy/haproxy.cfg.template \
     && ls -la /etc/haproxy/haproxy.cfg.template
 
-# Install runtime packages
+# Install runtime packages (keep apt haproxy for shared libraries, binary replaced below)
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     bash haproxy gosu netcat-openbsd openssl ca-certificates iproute2 tzdata git && \
     rm -rf /var/lib/apt/lists/* /usr/share/doc /usr/share/man /usr/share/info /usr/share/locale /usr/share/lintian
+
+# HAProxy with native QUIC/H3 support from official image
+COPY --from=haproxy-src /usr/local/sbin/haproxy /usr/sbin/haproxy
 
 # Create the data directory for repositories
 RUN mkdir -p /data && chown node:node /data

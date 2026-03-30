@@ -256,57 +256,48 @@ jobs:
       (needs.promote-latest.result == 'success' || needs.promote-latest.result == 'skipped')
     runs-on: ubuntu-latest
     steps:
-      - name: Store latest version in pipeline-state branch
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Checkout state branch
+        uses: actions/checkout@v4
+        with:
+          ref: pipeline-state
+          fetch-depth: 1
+        continue-on-error: true
+        id: checkout-state
+
+      - name: Initialize orphan branch if needed
+        if: steps.checkout-state.outcome == 'failure'
+        shell: bash
+        run: |
+          git init
+          git checkout --orphan pipeline-state
+          git reset --hard
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git remote add origin "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" 2>/dev/null || true
+
+      - name: Write and push state
         shell: bash
         run: |
           set -euo pipefail
 
           LATEST="${{ needs.fetch-releases.outputs.latest_version }}"
-          REPO="${{ github.repository }}"
-          STATE_BRANCH="pipeline-state"
-          STATE_FILE="state.json"
-
           if [[ -z "$LATEST" ]]; then
             echo "No latest version to store"
             exit 0
           fi
 
-          STATE_CONTENT="$(jq -n --arg v "$LATEST" --arg t "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            '{npm_latest_version: $v, updated_at: $t}')"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          ENCODED="$(echo "$STATE_CONTENT" | base64 -w 0)"
+          jq -n --arg v "$LATEST" --arg t "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            '{npm_latest_version: $v, updated_at: $t}' > state.json
 
-          # Check if file already exists on the branch
-          EXISTING_SHA=""
-          EXISTING_SHA="$(gh api "repos/${REPO}/contents/${STATE_FILE}?ref=${STATE_BRANCH}" --jq '.sha' 2>/dev/null || echo "")"
-
-          if [[ -n "$EXISTING_SHA" ]]; then
-            # Update existing file
-            gh api "repos/${REPO}/contents/${STATE_FILE}" \
-              --method PUT \
-              -f message="state: update npm_latest_version to ${LATEST}" \
-              -f content="$ENCODED" \
-              -f sha="$EXISTING_SHA" \
-              -f branch="$STATE_BRANCH" \
-              --silent
-            echo "Updated state: npm_latest_version=${LATEST}"
-          else
-            # Create branch and file if they don't exist
-            # Get the empty tree SHA for an orphan commit
-            EMPTY_TREE="$(gh api "repos/${REPO}/git/trees" --method POST -f 'tree[][path]='"$STATE_FILE" -f 'tree[][mode]=100644' -f 'tree[][type]=blob' -f 'tree[][content]='"$STATE_CONTENT" --jq '.sha')"
-            COMMIT="$(gh api "repos/${REPO}/git/commits" --method POST -f message="state: initialize pipeline state" -f tree="$EMPTY_TREE" --jq '.sha')"
-
-            # Try to create the branch ref
-            if ! gh api "repos/${REPO}/git/refs" --method POST -f ref="refs/heads/${STATE_BRANCH}" -f sha="$COMMIT" --silent 2>/dev/null; then
-              # Branch exists but file doesn't — use contents API
-              gh api "repos/${REPO}/contents/${STATE_FILE}" \
-                --method PUT \
-                -f message="state: initialize npm_latest_version to ${LATEST}" \
-                -f content="$ENCODED" \
-                -f branch="$STATE_BRANCH" \
-                --silent
-            fi
-            echo "Created state: npm_latest_version=${LATEST}"
+          # Check if state actually changed
+          if git diff --quiet -- state.json 2>/dev/null; then
+            echo "State unchanged — skipping commit"
+            exit 0
           fi
+
+          git add state.json
+          git commit -m "state: update npm_latest_version to ${LATEST}"
+          git push "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" HEAD:pipeline-state

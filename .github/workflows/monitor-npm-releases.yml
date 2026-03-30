@@ -292,12 +292,13 @@ jobs:
           jq -n --arg v "$LATEST" --arg t "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             '{npm_latest_version: $v, updated_at: $t}' > state.json
 
-          # Check if state actually changed
-          if git diff --quiet -- state.json 2>/dev/null; then
+          git add state.json
+
+          # Check if staged content differs from HEAD (handles both new and modified files)
+          if git diff --cached --quiet 2>/dev/null; then
             echo "State unchanged — skipping commit"
             exit 0
           fi
 
-          git add state.json
           git commit -m "state: update npm_latest_version to ${LATEST}"
           git push "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" HEAD:pipeline-state

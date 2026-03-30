@@ -43,7 +43,7 @@ on:
 
 permissions:
   contents: read
-  actions: read
+  actions: write
   packages: write
 
 concurrency:
@@ -69,8 +69,64 @@ env:
   DOCKER_BUILDKIT_INLINE_CACHE: '1'
 
 jobs:
+  quick-check:
+    name: Check if pipeline run is needed
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.check.outputs.should_run }}
+    steps:
+      - name: Compare NPM latest against stored state
+        id: check
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          # Manual triggers and force_build always run
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "Manual trigger — running pipeline"
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # For repository_dispatch with force_build
+          if [[ "${{ github.event.client_payload.force_build || '' }}" == "true" ]]; then
+            echo "Force build requested — running pipeline"
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Check current NPM latest version
+          CURRENT_NPM_LATEST="$(curl -fsSL "${NPM_REGISTRY}/${NPM_PACKAGE}" | jq -r '."dist-tags".latest // ""' 2>/dev/null || echo "")"
+          if [[ -z "$CURRENT_NPM_LATEST" ]]; then
+            echo "Could not fetch NPM latest — running pipeline as fallback"
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Get stored state from repo variables
+          STORED_NPM_LATEST="${{ vars.LAST_NPM_LATEST_VERSION || '' }}"
+
+          if [[ -z "$STORED_NPM_LATEST" ]]; then
+            echo "No stored NPM version — first run, running pipeline"
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [[ "$CURRENT_NPM_LATEST" != "$STORED_NPM_LATEST" ]]; then
+            echo "NPM latest changed: ${STORED_NPM_LATEST} -> ${CURRENT_NPM_LATEST} — running pipeline"
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "NPM latest unchanged (${CURRENT_NPM_LATEST}) — skipping pipeline"
+          echo "should_run=false" >> "$GITHUB_OUTPUT"
+
   preflight:
     name: Preflight checks
+    needs: [quick-check]
+    if: needs.quick-check.outputs.should_run == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -96,6 +152,8 @@ jobs:
 
   fetch-releases:
     name: Fetch and filter NPM releases
+    needs: [quick-check]
+    if: needs.quick-check.outputs.should_run == 'true'
     runs-on: ubuntu-latest
     outputs:
       normalized_action: ${{ steps.normalize.outputs.action }}
@@ -163,7 +221,7 @@ jobs:
 
   promote-latest:
     name: Promote latest tag
-    needs: [fetch-releases, build-versions]
+    needs: [quick-check, fetch-releases, build-versions]
     if: |
       always() &&
       needs.fetch-releases.outputs.latest_version != '' &&
@@ -180,3 +238,38 @@ jobs:
     secrets:
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+
+  update-state:
+    name: Update pipeline state
+    needs: [fetch-releases, promote-latest]
+    if: |
+      always() &&
+      needs.fetch-releases.outputs.latest_version != '' &&
+      (needs.promote-latest.result == 'success' || needs.promote-latest.result == 'skipped')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Store latest version in repo variable
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          LATEST="${{ needs.fetch-releases.outputs.latest_version }}"
+          REPO="${{ github.repository }}"
+
+          if [[ -z "$LATEST" ]]; then
+            echo "No latest version to store"
+            exit 0
+          fi
+
+          # Create or update the repo variable
+          if gh api "repos/${REPO}/actions/variables/LAST_NPM_LATEST_VERSION" --silent 2>/dev/null; then
+            gh api "repos/${REPO}/actions/variables/LAST_NPM_LATEST_VERSION" \
+              --method PATCH -f value="$LATEST" --silent
+            echo "Updated LAST_NPM_LATEST_VERSION to ${LATEST}"
+          else
+            gh api "repos/${REPO}/actions/variables" \
+              --method POST -f name="LAST_NPM_LATEST_VERSION" -f value="$LATEST" --silent
+            echo "Created LAST_NPM_LATEST_VERSION = ${LATEST}"
+          fi

@@ -84,9 +84,9 @@ ENV PORT=\${PORT}
 ENV API_KEY=\${API_KEY}
 ENV DATA_DIR=/data
 
-# Health check using nc (netcat) to check if the port is open
+# L7 health check: verifies HAProxy + MCP backend respond with HTTP 200
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \\
-    CMD nc -z localhost \${PORT:-8010} || exit 1
+    CMD printf "GET /healthz HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n" | nc localhost \${PORT:-8010} | grep -q "200 OK" || exit 1
 
 # Set the entrypoint
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

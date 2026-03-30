@@ -56,7 +56,7 @@
 - **Repository Auto-Analysis** - Automatically indexes all repositories in the data directory on startup
 - **Web UI** - Built-in web interface for browsing indexed repositories
 - **Wiki Generation** - AI-powered wiki generation with OpenAI, Ollama, vLLM, or any OpenAI-compatible API
-- **Secure by Design** - API key auth, CORS, TLS termination (bring your own certs)
+- **Secure by Design** - API key auth (case-insensitive Bearer), CORS, TLS termination, security headers (X-Content-Type-Options, X-Frame-Options, HSTS)
 - **High Performance** - ZSTD compression for faster deployments
 
 ---
@@ -120,7 +120,6 @@ services:
       # GitNexus Analysis Options
       - DATA_DIR=/data
       - ANALYZE_FORCE=false
-      - ANALYZE_SKIP_EMBEDDINGS=true
       - ANALYZE_VERBOSE=false
       # Optional: require Bearer token auth at HAProxy layer
       # - API_KEY=replace-with-strong-secret
@@ -158,7 +157,6 @@ docker run -d \
   -e ENABLE_HTTPS=false \
   -e HTTP_VERSION_MODE=auto \
   -e DATA_DIR=/data \
-  -e ANALYZE_SKIP_EMBEDDINGS=true \
   mekayelanik/gitnexus-mcp:latest
 ```
 
@@ -270,7 +268,7 @@ services:
       - PROTOCOL=SHTTP
       - ENABLE_HTTPS=false
       - DATA_DIR=/data
-      - ANALYZE_SKIP_EMBEDDINGS=true
+      - ANALYZE_VERBOSE=false
       # Wiki via local Ollama
       - WIKI_ENABLED=true
       - WIKI_BASE_URL=http://ollama:11434/v1
@@ -363,9 +361,8 @@ When HTTPS is enabled (`ENABLE_HTTPS=true`), use TLS endpoints:
 | `DATA_DIR` | `/data` | Any valid path | Root directory containing repositories to analyze |
 | `ANALYZE_FORCE` | `false` | `true`, `false` | Force full re-index of all repositories |
 | `ANALYZE_SKILLS` | `false` | `true`, `false` | Generate repo-specific skill files from detected communities |
-| `ANALYZE_SKIP_EMBEDDINGS` | `false` | `true`, `false` | Skip embedding generation (faster startup) |
-| `ANALYZE_SKIP_AGENTS_MD` | `false` | `true`, `false` | Preserve custom AGENTS.md/CLAUDE.md edits |
-| `ANALYZE_EMBEDDINGS` | `false` | `true`, `false` | Enable embedding generation (slower, better search) |
+| `ANALYZE_EMBEDDINGS` | `false` | `true`, `false` | Enable embedding generation for semantic search (slower, better search) |
+| `ANALYZE_SKIP_GIT` | `false` | `true`, `false` | Index folders without requiring a `.git` directory |
 | `ANALYZE_VERBOSE` | `false` | `true`, `false` | Log skipped files when parsers are unavailable |
 
 #### Cleanup
@@ -397,8 +394,20 @@ When HTTPS is enabled (`ENABLE_HTTPS=true`), use TLS endpoints:
 ### API Key Authentication Notes
 
 - Set `API_KEY` to enforce authentication at the reverse proxy level.
-- Expected header format: `Authorization: Bearer <API_KEY>`.
-- Localhost health checks remain accessible for liveness/readiness probes.
+- Expected header format: `Authorization: Bearer <API_KEY>` (case-insensitive: `bearer`, `BEARER`, etc. all work).
+- API keys may contain any printable characters including regex special characters (`.*+?$` etc.).
+- Localhost health checks (`/healthz`) remain accessible without authentication for liveness/readiness probes.
+- CORS preflight (OPTIONS) requests bypass authentication as required by the CORS specification.
+
+### Security Headers
+
+The following security headers are automatically added to all responses via HAProxy:
+
+| Header | Value | Condition |
+|:-------|:------|:----------|
+| `X-Content-Type-Options` | `nosniff` | Always |
+| `X-Frame-Options` | `DENY` | Always |
+| `Strict-Transport-Security` | `max-age=31536000; includeSubDomains` | HTTPS only |
 
 ---
 
@@ -420,6 +429,8 @@ On startup, the container analyzes all subdirectories inside `DATA_DIR`. Mount y
     ├── .git/
     └── ...
 ```
+
+> **Tip:** Set `ANALYZE_SKIP_GIT=true` to index folders that don't have a `.git` directory (e.g., extracted archives or copied source trees).
 
 ---
 

@@ -42,7 +42,7 @@ validate_port() {
     local fallback="$3"
 
     if ! is_positive_int "$value" || [ "$value" -lt 1 ] || [ "$value" -gt 65535 ]; then
-        echo "Invalid ${name}='${value}', using default ${fallback}"
+        echo "Invalid ${name}='${value}', using default ${fallback}" >&2
         printf '%s' "$fallback"
         return
     fi
@@ -317,11 +317,16 @@ generate_haproxy_config() {
 
     local api_key_check
     if [[ -n "$API_KEY" ]]; then
-        local escaped_key_regex
-        escaped_key_regex="$(escape_haproxy_regex "$API_KEY")"
+        local escaped_key_sed
+        escaped_key_sed="$(escape_sed_replacement "$API_KEY")"
         api_key_check="    # API Key authentication enabled (localhost /healthz excluded)
     acl auth_header_present var(txn.auth_header) -m found
-    acl auth_valid var(txn.auth_header) -m reg ^[Bb][Ee][Aa][Rr][Ee][Rr][[:space:]]+${escaped_key_regex}$
+
+    # Extract token: strip 'Bearer ' prefix (case-insensitive) into txn.api_token
+    http-request set-var(txn.api_token) var(txn.auth_header),regsub(^[Bb][Ee][Aa][Rr][Ee][Rr][[:space:]]+,)
+
+    # Validate extracted token via exact string match (no regex escaping issues)
+    acl auth_valid var(txn.api_token) -m str ${escaped_key_sed}
 
     # Deny requests without valid authentication (except localhost health checks)
     http-request deny deny_status 401 content-type \"application/json\" string '{\"error\":\"Unauthorized\",\"message\":\"Valid API key required\"}' if !is_health_check !auth_header_present
@@ -431,16 +436,12 @@ run_gitnexus_analyze() {
         analyze_args+=("--skills")
     fi
 
-    if is_true "${ANALYZE_SKIP_EMBEDDINGS:-false}"; then
-        analyze_args+=("--skip-embeddings")
-    fi
-
-    if is_true "${ANALYZE_SKIP_AGENTS_MD:-false}"; then
-        analyze_args+=("--skip-agents-md")
-    fi
-
     if is_true "${ANALYZE_EMBEDDINGS:-false}"; then
         analyze_args+=("--embeddings")
+    fi
+
+    if is_true "${ANALYZE_SKIP_GIT:-false}"; then
+        analyze_args+=("--skip-git")
     fi
 
     if is_true "${ANALYZE_VERBOSE:-false}"; then

@@ -211,7 +211,7 @@ haproxy_supports_quic() {
 
     # Runtime probe: verify QUIC bind actually works with the current SSL library
     local probe_dir probe_cfg probe_pem output
-    probe_dir="$(mktemp -d)" || { echo "QUIC_PROBE: mktemp failed" >&2; return 1; }
+    probe_dir="$(mktemp -d)" || return 1
     probe_cfg="${probe_dir}/probe.cfg"
     probe_pem="${probe_dir}/probe.pem"
 

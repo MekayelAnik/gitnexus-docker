@@ -21,6 +21,11 @@ on:
         description: Base image used by DockerfileModifier
         required: true
         type: string
+      haproxy_image:
+        description: HAProxy image for QUIC/H3 support (GHCR mirror with Docker Hub fallback)
+        required: false
+        type: string
+        default: 'haproxy:lts'
       ghcr_repo:
         description: GHCR repository
         required: true
@@ -96,6 +101,7 @@ jobs:
           echo "dockerhub_repo=$(trim '${{ inputs.dockerhub_repo }}')" >> "$GITHUB_OUTPUT"
           echo "default_platforms=$(trim '${{ inputs.default_platforms }}')" >> "$GITHUB_OUTPUT"
           echo "base_image_default=$(trim '${{ inputs.base_image_default }}')" >> "$GITHUB_OUTPUT"
+          echo "haproxy_image=$(trim '${{ inputs.haproxy_image }}')" >> "$GITHUB_OUTPUT"
 
       - name: Checkout
         uses: actions/checkout@v4
@@ -140,8 +146,10 @@ jobs:
         run: |
           set -euo pipefail
           echo "Using base image: ${{ steps.sanitize.outputs.base_image_default }}"
+          echo "Using HAProxy image: ${{ steps.sanitize.outputs.haproxy_image }}"
           mkdir -p build_data
           echo "${{ steps.sanitize.outputs.base_image_default }}" > ./build_data/base-image
+          echo "${{ steps.sanitize.outputs.haproxy_image }}" > ./build_data/haproxy-image
           echo "${{ matrix.version }}" > ./build_data/version
           touch ./build_data/build
           bash ./DockerfileModifier.sh

@@ -278,7 +278,7 @@ resolve_listener_protocols() {
     local mode="$1"
 
     if ! is_true "$ENABLE_HTTPS"; then
-        if [[ "$mode" != "h1" ]]; then
+        if [[ "$mode" != "h1" && "$mode" != "auto" ]]; then
             echo "HTTP_VERSION_MODE='${mode}' requested without TLS; falling back to HTTP/1.1" >&2
         fi
 

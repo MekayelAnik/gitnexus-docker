@@ -97,7 +97,6 @@ jobs:
   fetch-releases:
     name: Fetch and filter NPM releases
     runs-on: ubuntu-latest
-    needs: [preflight]
     outputs:
       normalized_action: ${{ steps.normalize.outputs.action }}
       normalized_versions: ${{ steps.normalize.outputs.versions }}
@@ -140,7 +139,7 @@ jobs:
 
   build-versions:
     name: Build selected versions
-    needs: [fetch-releases]
+    needs: [preflight, fetch-releases]
     if: needs.fetch-releases.outputs.should_build == 'true' && needs.fetch-releases.outputs.normalized_action != 'promote-latest'
     uses: ./.github/workflows/reusable-build-versions.yml
     with:

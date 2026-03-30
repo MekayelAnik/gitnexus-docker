@@ -201,7 +201,48 @@ handle_first_run() {
 }
 
 haproxy_supports_quic() {
-    haproxy -vv 2>/dev/null | grep -Eiq 'USE_QUIC=1|[[:space:]]quic[[:space:]]: mode=HTTP'
+    # Build flag check (fast pre-filter)
+    if ! haproxy -vv 2>/dev/null | grep -Eiq 'USE_QUIC=1|[[:space:]]quic[[:space:]]: mode=HTTP'; then
+        return 1
+    fi
+
+    # Runtime probe: verify QUIC bind actually works with the current SSL library
+    # (USE_QUIC=1 + QUIC_OPENSSL_COMPAT may still fail at config validation)
+    local probe_dir probe_cfg probe_key probe_crt probe_pem output
+    probe_dir="$(mktemp -d)" || return 1
+    probe_cfg="${probe_dir}/probe.cfg"
+    probe_key="${probe_dir}/probe.key"
+    probe_crt="${probe_dir}/probe.crt"
+    probe_pem="${probe_dir}/probe.pem"
+
+    # Generate a throwaway self-signed cert for the probe (real cert needed to reach QUIC check)
+    if ! openssl req -x509 -newkey rsa:2048 -keyout "$probe_key" -out "$probe_crt" \
+         -days 1 -nodes -subj "/CN=quic-probe" -batch 2>/dev/null; then
+        rm -rf "$probe_dir"
+        return 1
+    fi
+    cat "$probe_crt" "$probe_key" > "$probe_pem"
+
+    cat > "$probe_cfg" <<-PROBE
+	global
+	    log stderr format raw local0
+	defaults
+	    mode http
+	frontend quic_probe
+	    bind quic4@*:65535 ssl crt ${probe_pem} alpn h3
+	    default_backend quic_probe_be
+	backend quic_probe_be
+	    server s1 127.0.0.1:1
+	PROBE
+
+    output="$(haproxy -c -f "$probe_cfg" 2>&1)" || true
+    rm -rf "$probe_dir"
+
+    # If output mentions QUIC protocol not supported, the bind type is rejected
+    if echo "$output" | grep -qi 'does not support the QUIC protocol'; then
+        return 1
+    fi
+    return 0
 }
 
 ensure_parent_dir() {

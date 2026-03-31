@@ -56,7 +56,7 @@ RUN apt-get update && \
 
 # HAProxy with native QUIC/H3 support from official image
 COPY --from=haproxy-src /usr/local/sbin/haproxy /usr/sbin/haproxy
-RUN ln -sf /usr/sbin/haproxy /usr/local/sbin/haproxy
+RUN mkdir -p /usr/local/sbin && ln -sf /usr/sbin/haproxy /usr/local/sbin/haproxy
 
 # Create the data directory for repositories
 RUN mkdir -p /data && chown node:node /data

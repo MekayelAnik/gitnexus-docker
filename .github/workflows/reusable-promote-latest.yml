@@ -3,11 +3,6 @@ name: Reusable Promote Latest
 on:
   workflow_call:
     inputs:
-      runner_version:
-        description: GitHub Actions runner version
-        required: false
-        type: string
-        default: 'ubuntu-24.04'
       latest_version:
         description: Latest stable version
         required: true
@@ -34,6 +29,11 @@ on:
         required: false
         type: boolean
         default: false
+      runner_version:
+        description: 'GitHub Actions runner version (e.g. ubuntu-24.04)'
+        required: false
+        type: string
+        default: 'ubuntu-24.04'
     secrets:
       DOCKERHUB_USERNAME:
         description: Docker Hub username
@@ -64,7 +64,7 @@ jobs:
           echo "date_tag=$(trim '${{ inputs.date_tag }}')" >> "$GITHUB_OUTPUT"
 
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Setup promotion environment
         uses: ./.github/actions/setup-build-env

@@ -3,6 +3,11 @@ name: Reusable Promote Latest
 on:
   workflow_call:
     inputs:
+      runner_version:
+        description: GitHub Actions runner version
+        required: false
+        type: string
+        default: 'ubuntu-24.04'
       latest_version:
         description: Latest stable version
         required: true
@@ -44,7 +49,7 @@ permissions:
 jobs:
   promote-latest:
     name: Promote latest tag
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner_version || 'ubuntu-latest' }}
     if: inputs.latest_version != ''
     steps:
       - name: Sanitize inputs (trim whitespace)

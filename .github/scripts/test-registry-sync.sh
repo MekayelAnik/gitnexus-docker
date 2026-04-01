@@ -43,6 +43,8 @@ case "$action" in
     if [[ -z "$platforms" ]]; then
       exit 1
     fi
+    # Emit Digest line so cached_inspect()/cached_digest() can parse it
+    echo "Digest: sha256:$(echo -n "$platforms" | sha256sum | cut -d' ' -f1)"
     IFS=',' read -ra arr <<< "$platforms"
     for p in "${arr[@]}"; do
       echo "Platform: $p"

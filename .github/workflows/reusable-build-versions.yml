@@ -3,6 +3,11 @@ name: Reusable Build Versions
 on:
   workflow_call:
     inputs:
+      runner_version:
+        description: GitHub Actions runner version
+        required: false
+        type: string
+        default: 'ubuntu-24.04'
       versions_json:
         description: JSON matrix include payload for versions
         required: true
@@ -83,7 +88,7 @@ permissions:
 jobs:
   build-versions:
     name: Build ${{ matrix.version }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner_version || 'ubuntu-latest' }}
     concurrency:
       group: build-${{ matrix.version }}
       cancel-in-progress: false

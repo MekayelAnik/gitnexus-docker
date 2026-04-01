@@ -75,7 +75,7 @@ env:
 jobs:
   quick-check:
     name: Check if pipeline run is needed
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.ACTION_RUNNER_VERSION || 'ubuntu-latest' }}
     outputs:
       should_run: ${{ steps.check.outputs.should_run }}
     steps:
@@ -139,7 +139,7 @@ jobs:
     name: Preflight checks
     needs: [quick-check]
     if: needs.quick-check.outputs.should_run == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.ACTION_RUNNER_VERSION || 'ubuntu-latest' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -166,7 +166,7 @@ jobs:
     name: Fetch and filter NPM releases
     needs: [quick-check]
     if: needs.quick-check.outputs.should_run == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.ACTION_RUNNER_VERSION || 'ubuntu-latest' }}
     outputs:
       normalized_action: ${{ steps.normalize.outputs.action }}
       normalized_versions: ${{ steps.normalize.outputs.versions }}
@@ -214,6 +214,7 @@ jobs:
     if: needs.fetch-releases.outputs.should_build == 'true' && needs.fetch-releases.outputs.normalized_action != 'promote-latest' && needs.fetch-releases.outputs.normalized_action != 'force-promote-latest' && needs.fetch-releases.outputs.normalized_action != 'promote-stable' && needs.fetch-releases.outputs.normalized_action != 'force-promote-stable'
     uses: ./.github/workflows/reusable-build-versions.yml
     with:
+      runner_version: ${{ vars.ACTION_RUNNER_VERSION || 'ubuntu-24.04' }}
       versions_json: ${{ needs.fetch-releases.outputs.versions_json }}
       build_profile: ${{ github.event.inputs.build_profile || 'production' }}
       force_build: ${{ needs.fetch-releases.outputs.normalized_force_build }}
@@ -248,6 +249,7 @@ jobs:
       )
     uses: ./.github/workflows/reusable-promote-latest.yml
     with:
+      runner_version: ${{ vars.ACTION_RUNNER_VERSION || 'ubuntu-24.04' }}
       latest_version: ${{ needs.fetch-releases.outputs.normalized_action == 'force-promote-latest' && needs.fetch-releases.outputs.normalized_versions != '' && needs.fetch-releases.outputs.normalized_versions || needs.fetch-releases.outputs.latest_version }}
       date_tag: ${{ needs.fetch-releases.outputs.date_tag }}
       ghcr_repo: ${{ vars.GHCR_REPO || format('ghcr.io/{0}/gitnexus-mcp', github.repository_owner) }}
@@ -264,7 +266,7 @@ jobs:
     if: |
       needs.promote-latest.result == 'success' &&
       needs.fetch-releases.outputs.latest_version != ''
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.ACTION_RUNNER_VERSION || 'ubuntu-latest' }}
     permissions:
       contents: write
     steps:
@@ -301,7 +303,7 @@ jobs:
     if: |
       always() &&
       needs.promote-latest.result == 'success'
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.ACTION_RUNNER_VERSION || 'ubuntu-latest' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -322,7 +324,7 @@ jobs:
       always() &&
       needs.fetch-releases.outputs.latest_version != '' &&
       needs.promote-latest.result == 'success'
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.ACTION_RUNNER_VERSION || 'ubuntu-latest' }}
     steps:
       - name: Checkout state branch
         uses: actions/checkout@v6

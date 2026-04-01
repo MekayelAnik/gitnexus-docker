@@ -43,7 +43,7 @@ case "$action" in
     if [[ -z "$platforms" ]]; then
       exit 1
     fi
-    # Emit Digest line so cached_inspect()/cached_digest() can parse it
+    # Emit Digest line so cached_digest() can parse it (deterministic per-content hash)
     echo "Digest: sha256:$(echo -n "$platforms" | sha256sum | cut -d' ' -f1)"
     IFS=',' read -ra arr <<< "$platforms"
     for p in "${arr[@]}"; do
@@ -75,6 +75,63 @@ esac
 MOCK
 chmod +x "$TMPDIR/docker"
 
+cat > "$TMPDIR/crane" <<'MOCK_CRANE'
+#!/usr/bin/env bash
+set -euo pipefail
+
+STATE_FILE="${MOCK_STATE_FILE:-}"
+if [[ -z "$STATE_FILE" || ! -f "$STATE_FILE" ]]; then
+    echo "mock state file missing" >&2
+    exit 1
+fi
+
+action="${1:-}"
+shift
+
+case "$action" in
+  digest)
+    ref="$1"
+    platforms=$(awk -F'=' -v k="$ref" '$1==k {print $2}' "$STATE_FILE")
+    if [[ -z "$platforms" ]]; then
+      exit 1
+    fi
+    echo "sha256:$(echo -n "$platforms" | sha256sum | cut -d' ' -f1)"
+    ;;
+  copy)
+    src="$1"
+    dst="$2"
+    source_platforms=$(awk -F'=' -v k="$src" '$1==k {print $2}' "$STATE_FILE")
+    if [[ -z "$source_platforms" ]]; then
+      echo "missing source ref: $src" >&2
+      exit 1
+    fi
+    tmpf="${STATE_FILE}.tmp"
+    awk -F'=' -v k="$dst" '$1!=k {print $0}' "$STATE_FILE" > "$tmpf"
+    echo "${dst}=${source_platforms}" >> "$tmpf"
+    mv "$tmpf" "$STATE_FILE"
+    ;;
+  tag)
+    src="$1"
+    dst_tag="$2"
+    repo="${src%%:*}"
+    source_platforms=$(awk -F'=' -v k="$src" '$1==k {print $2}' "$STATE_FILE")
+    if [[ -z "$source_platforms" ]]; then
+      echo "missing source ref: $src" >&2
+      exit 1
+    fi
+    tmpf="${STATE_FILE}.tmp"
+    awk -F'=' -v k="${repo}:${dst_tag}" '$1!=k {print $0}' "$STATE_FILE" > "$tmpf"
+    echo "${repo}:${dst_tag}=${source_platforms}" >> "$tmpf"
+    mv "$tmpf" "$STATE_FILE"
+    ;;
+  *)
+    echo "unexpected crane action: $action" >&2
+    exit 1
+    ;;
+esac
+MOCK_CRANE
+chmod +x "$TMPDIR/crane"
+
 run_case() {
     local name="$1"
     local tags="$2"
@@ -105,15 +162,15 @@ run_case() {
         grep -q "dockerhub/repo:v1=linux/amd64,linux/arm64" "$state_file"
         ;;
       matching-skip)
-        grep -q "platform manifests already match across registries - skipping" "$out_file"
+        grep -q "digests match" "$out_file"
         ;;
       mismatch-sync)
-        grep -q "Syncing v1: mismatch detected, GHCR -> Docker Hub" "$out_file"
+        grep -q "Syncing v1: digest mismatch, GHCR -> Docker Hub" "$out_file"
         grep -q "dockerhub/repo:v1=linux/amd64,linux/arm64" "$state_file"
         grep -q "Synced v1 successfully" "$out_file"
         ;;
       duplicate-tags)
-        grep -q "duplicate in input list - skipping duplicate" "$out_file"
+        grep -q "duplicate - skipping" "$out_file"
         ;;
       *)
         echo "unknown test case: $name" >&2

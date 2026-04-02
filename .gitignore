@@ -9,3 +9,4 @@ example/
 /Dockerfile
 .buildx-cache
 .git
+node-compile-cache

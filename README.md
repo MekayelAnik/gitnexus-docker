@@ -106,6 +106,7 @@ services:
       - "4747:4747"   # Web UI
     volumes:
       - /path/to/your/repos:/data:rw
+      - gitnexus-registry:/home/node/.gitnexus   # Persist index registry across recreations
     environment:
       - PORT=8010
       - INTERNAL_PORT=38011
@@ -129,6 +130,10 @@ services:
       # - WIKI_MODEL=gpt-4o
     hostname: gitnexus-mcp
     domainname: local
+
+volumes:
+  gitnexus-registry:
+    driver: local
 ```
 
 **Deploy:**
@@ -140,12 +145,14 @@ docker compose logs -f gitnexus-mcp
 ### Docker CLI
 
 ```bash
+docker volume create gitnexus-registry
 docker run -d \
   --name=gitnexus-mcp \
   --restart=unless-stopped \
   -p 8010:8010 \
   -p 4747:4747 \
   -v /path/to/your/repos:/data:rw \
+  -v gitnexus-registry:/home/node/.gitnexus \
   -e PORT=8010 \
   -e INTERNAL_PORT=38011 \
   -e WEB_UI_PORT=4747 \
@@ -173,6 +180,7 @@ services:
       - "4747:4747"   # Web UI
     volumes:
       - /path/to/your/repos:/data:rw
+      - gitnexus-registry:/home/node/.gitnexus   # Persist index registry
       - /path/to/certs:/etc/haproxy/certs:ro   # TLS certificates
     environment:
       # Core
@@ -215,11 +223,16 @@ services:
               capabilities: [compute, utility]
     hostname: gitnexus-mcp
     domainname: local
+
+volumes:
+  gitnexus-registry:
+    driver: local
 ```
 
 ### Full-Featured Docker CLI (GPU + Auth)
 
 ```bash
+docker volume create gitnexus-registry
 docker run -d \
   --name=gitnexus-mcp \
   --restart=unless-stopped \
@@ -227,6 +240,7 @@ docker run -d \
   -p 8010:8010 \
   -p 4747:4747 \
   -v /path/to/your/repos:/data:rw \
+  -v gitnexus-registry:/home/node/.gitnexus \
   -v /path/to/certs:/etc/haproxy/certs:ro \
   -e PORT=8010 \
   -e WEB_UI_PORT=4747 \
@@ -263,6 +277,7 @@ services:
       - "4747:4747"
     volumes:
       - /path/to/your/repos:/data:rw
+      - gitnexus-registry:/home/node/.gitnexus   # Persist index registry
     environment:
       - PORT=8010
       - PROTOCOL=SHTTP
@@ -291,6 +306,8 @@ services:
     #           capabilities: [compute, utility]
 
 volumes:
+  gitnexus-registry:
+    driver: local
   ollama-data:
 ```
 
@@ -319,6 +336,16 @@ When HTTPS is enabled (`ENABLE_HTTPS=true`), use TLS endpoints:
 ---
 
 ## Configuration
+
+### Volumes
+
+| Mount | Container Path | Purpose |
+|:------|:---------------|:--------|
+| Repository data | `/data` | Root directory containing repositories to analyze (required) |
+| Index registry | `/home/node/.gitnexus` | Global registry mapping repos to their indexes. **Persist this** with a named volume to avoid re-registration on container recreation |
+| TLS certificates | `/etc/haproxy/certs` | TLS cert/key files (only needed with `ENABLE_HTTPS=true`) |
+
+> **Index storage:** GitNexus stores the actual index inside `.gitnexus/` within each repository directory. Since repos are mounted from the host, indexes automatically persist. The registry at `/home/node/.gitnexus` only stores pointers — but without it, GitNexus must re-discover and re-register all repos on startup.
 
 ### Complete Environment Variables Reference
 

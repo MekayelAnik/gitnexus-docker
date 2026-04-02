@@ -624,9 +624,9 @@ start_web_ui() {
     echo "Starting GitNexus Web UI on port ${WEB_UI_PORT}"
 
     if [ "$(id -u)" -eq 0 ]; then
-        gosu node gitnexus serve --port "$WEB_UI_PORT" &
+        gosu node gitnexus serve --port "$WEB_UI_PORT" --host 0.0.0.0 &
     else
-        gitnexus serve --port "$WEB_UI_PORT" &
+        gitnexus serve --port "$WEB_UI_PORT" --host 0.0.0.0 &
     fi
 
     WEB_UI_PID=$!

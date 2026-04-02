@@ -41,7 +41,7 @@ RUN echo "Built: \$(date -u '+%Y-%m-%d %H:%M:%S UTC') | GitNexus v${GITNEXUS_VER
 
 # Copy the entrypoint script into the container and make it executable
 COPY ./resources/ /usr/local/bin/
-RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/banner.sh /usr/local/bin/optimize.sh \
+RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/banner.sh /usr/local/bin/optimize.sh /usr/local/bin/healthcheck.sh \
     && mv -f /tmp/build-timestamp.txt /usr/local/bin/build-timestamp.txt \
     && chmod +r /usr/local/bin/build-timestamp.txt \
     && mkdir -p /etc/haproxy \
@@ -51,7 +51,7 @@ RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/banner.sh /usr/local/bi
 # Install runtime packages (keep apt haproxy for shared libraries, binary replaced below)
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    bash haproxy gosu netcat-openbsd openssl ca-certificates iproute2 tzdata git wget && \
+    bash haproxy gosu netcat-openbsd openssl ca-certificates iproute2 tzdata git wget procps && \
     rm -rf /var/lib/apt/lists/* /usr/share/doc /usr/share/man /usr/share/info /usr/share/locale /usr/share/lintian
 
 # HAProxy with native QUIC/H3 support from official image
@@ -90,9 +90,9 @@ ENV PORT=\${PORT}
 ENV API_KEY=\${API_KEY}
 ENV DATA_DIR=/data
 
-# L7 health check: auto-detects HTTP/HTTPS via ENABLE_HTTPS env var
+# L7 health check: analysis-aware script that reports healthy during startup phases
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \\
-    CMD sh -c 'wget -q --spider --no-check-certificate \$([ "\$ENABLE_HTTPS" = "true" ] && echo https || echo http)://127.0.0.1:\${PORT:-8010}/healthz'
+    CMD /usr/local/bin/healthcheck.sh
 
 # Set the entrypoint
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

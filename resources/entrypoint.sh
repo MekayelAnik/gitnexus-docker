@@ -13,10 +13,15 @@ readonly DEFAULT_DATA_DIR="/data"
 readonly SAFE_API_KEY_REGEX='^[[:graph:]]+$'
 readonly MIN_API_KEY_LEN=5
 readonly MAX_API_KEY_LEN=256
-readonly FIRST_RUN_FILE="/tmp/first_run_complete"
+readonly FIRST_RUN_FILE="/state/first_run_complete"
 readonly HAPROXY_SERVER_NAME="gitnexus"
 readonly HAPROXY_TEMPLATE="/etc/haproxy/haproxy.cfg.template"
 readonly HAPROXY_CONFIG="/tmp/haproxy.cfg"
+readonly STATE_DIR="/state"
+readonly CLEAN_DONE_FILE="${STATE_DIR}/.clean_done"
+readonly CLEAN_ALL_DONE_FILE="${STATE_DIR}/.clean_all_done"
+readonly ANALYZE_FORCE_DONE_FILE="${STATE_DIR}/.analyze_force_done"
+readonly WIKI_FORCE_DONE_FILE="${STATE_DIR}/.wiki_force_done"
 
 trim() {
     local var="$*"
@@ -234,6 +239,10 @@ haproxy_supports_quic() {
     return 0
 }
 
+ensure_state_dir() {
+    mkdir -p "$STATE_DIR"
+}
+
 ensure_parent_dir() {
     local target="$1"
     mkdir -p "$(dirname "$target")"
@@ -437,14 +446,30 @@ start_haproxy() {
 
 run_gitnexus_clean() {
     if is_true "${CLEAN_ALL_FORCE:-false}"; then
+        if [[ -f "$CLEAN_ALL_DONE_FILE" ]]; then
+            echo "Clean --all --force already completed this container lifecycle, skipping"
+            return
+        fi
         echo "Running gitnexus clean --all --force..."
-        gitnexus clean --all --force || echo "Warning: gitnexus clean --all --force returned non-zero"
+        if gitnexus clean --all --force; then
+            touch "$CLEAN_ALL_DONE_FILE"
+        else
+            echo "Warning: gitnexus clean --all --force returned non-zero (will retry on next restart)"
+        fi
         return
     fi
 
     if is_true "${CLEAN_ON_START:-false}"; then
+        if [[ -f "$CLEAN_DONE_FILE" ]]; then
+            echo "Clean already completed this container lifecycle, skipping"
+            return
+        fi
         echo "Running gitnexus clean..."
-        gitnexus clean || echo "Warning: gitnexus clean returned non-zero"
+        if gitnexus clean; then
+            touch "$CLEAN_DONE_FILE"
+        else
+            echo "Warning: gitnexus clean returned non-zero (will retry on next restart)"
+        fi
     fi
 }
 
@@ -459,7 +484,11 @@ run_gitnexus_analyze() {
     local analyze_args=()
 
     if is_true "${ANALYZE_FORCE:-false}"; then
-        analyze_args+=("--force")
+        if [[ -f "$ANALYZE_FORCE_DONE_FILE" ]]; then
+            echo "Force analysis already completed this container lifecycle, skipping --force"
+        else
+            analyze_args+=("--force")
+        fi
     fi
 
     if is_true "${ANALYZE_SKILLS:-false}"; then
@@ -493,6 +522,10 @@ run_gitnexus_analyze() {
         (cd "$data_dir" && gitnexus analyze "${analyze_args[@]}" 2>&1) || \
             echo "Warning: gitnexus analyze failed for ${data_dir}"
     fi
+
+    if is_true "${ANALYZE_FORCE:-false}" && [[ ! -f "$ANALYZE_FORCE_DONE_FILE" ]]; then
+        touch "$ANALYZE_FORCE_DONE_FILE"
+    fi
 }
 
 run_gitnexus_wiki() {
@@ -512,7 +545,11 @@ run_gitnexus_wiki() {
     fi
 
     if is_true "${WIKI_FORCE:-false}"; then
-        wiki_args+=("--force")
+        if [[ -f "$WIKI_FORCE_DONE_FILE" ]]; then
+            echo "Force wiki generation already completed this container lifecycle, skipping --force"
+        else
+            wiki_args+=("--force")
+        fi
     fi
 
     for repo_dir in "$data_dir"/*/; do
@@ -522,6 +559,10 @@ run_gitnexus_wiki() {
                 echo "Warning: gitnexus wiki failed for ${repo_dir}"
         fi
     done
+
+    if is_true "${WIKI_FORCE:-false}" && [[ ! -f "$WIKI_FORCE_DONE_FILE" ]]; then
+        touch "$WIKI_FORCE_DONE_FILE"
+    fi
 }
 
 start_mcp_server() {
@@ -636,6 +677,8 @@ main() {
 
     validate_api_key
     validate_cors
+
+    ensure_state_dir
 
     if [[ ! -f "$FIRST_RUN_FILE" ]]; then
         handle_first_run

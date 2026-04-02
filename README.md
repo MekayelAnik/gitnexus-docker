@@ -359,7 +359,7 @@ When HTTPS is enabled (`ENABLE_HTTPS=true`), use TLS endpoints:
 | Variable | Default | Possible Values | Description |
 |:---------|:-------:|:----------------|:------------|
 | `DATA_DIR` | `/data` | Any valid path | Root directory containing repositories to analyze |
-| `ANALYZE_FORCE` | `false` | `true`, `false` | Force full re-index of all repositories |
+| `ANALYZE_FORCE` | `false` | `true`, `false` | Force full re-index of all repositories (once per container lifecycle) |
 | `ANALYZE_SKILLS` | `false` | `true`, `false` | Generate repo-specific skill files from detected communities |
 | `ANALYZE_EMBEDDINGS` | `false` | `true`, `false` | Enable embedding generation for semantic search (slower, better search) |
 | `ANALYZE_SKIP_GIT` | `false` | `true`, `false` | Index folders without requiring a `.git` directory |
@@ -369,8 +369,8 @@ When HTTPS is enabled (`ENABLE_HTTPS=true`), use TLS endpoints:
 
 | Variable | Default | Possible Values | Description |
 |:---------|:-------:|:----------------|:------------|
-| `CLEAN_ON_START` | `false` | `true`, `false` | Run `gitnexus clean` before analysis |
-| `CLEAN_ALL_FORCE` | `false` | `true`, `false` | Run `gitnexus clean --all --force` (deletes ALL indexes) |
+| `CLEAN_ON_START` | `false` | `true`, `false` | Run `gitnexus clean` before analysis (once per container lifecycle) |
+| `CLEAN_ALL_FORCE` | `false` | `true`, `false` | Run `gitnexus clean --all --force` (deletes ALL indexes, once per container lifecycle) |
 
 #### Wiki Generation
 
@@ -379,10 +379,23 @@ When HTTPS is enabled (`ENABLE_HTTPS=true`), use TLS endpoints:
 | `WIKI_ENABLED` | `false` | `true`, `false` | Enable wiki generation after analysis |
 | `WIKI_MODEL` | `gpt-4o-mini` | Any model name | LLM model (e.g. `gpt-4o-mini`, `gpt-4o`, `llama3`, `mistral`) |
 | `WIKI_BASE_URL` | *(OpenAI default)* | Any URL | API base URL for LLM provider (e.g. `http://ollama:11434/v1`) |
-| `WIKI_FORCE` | `false` | `true`, `false` | Force full wiki regeneration |
+| `WIKI_FORCE` | `false` | `true`, `false` | Force full wiki regeneration (once per container lifecycle) |
 | `OPENAI_API_KEY` | *(empty)* | Any string | API key for OpenAI or compatible providers |
 
 > **Boolean values:** `true`, `1`, `yes`, `on` are all accepted as truthy. Everything else is falsy.
+
+> **Once per container lifecycle:** `CLEAN_ON_START`, `CLEAN_ALL_FORCE`, `ANALYZE_FORCE`, and `WIKI_FORCE` run only once after the container is created. They are skipped on subsequent restarts (e.g., crash recovery, `docker restart`). To re-trigger, recreate the container (`docker compose down && docker compose up -d`).
+
+#### One-Shot Operations
+
+For ad-hoc operations without setting env vars, use `docker exec`:
+
+```bash
+docker exec gitnexus-mcp gitnexus clean                # Clean current repo index
+docker exec gitnexus-mcp gitnexus clean --all --force   # Delete ALL indexes
+docker exec gitnexus-mcp gitnexus analyze --force       # Force full re-index
+docker exec gitnexus-mcp gitnexus wiki --force          # Force wiki regeneration
+```
 
 ### HTTPS Notes
 

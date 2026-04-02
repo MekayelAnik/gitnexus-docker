@@ -708,6 +708,9 @@ main() {
 
     trap shutdown INT TERM EXIT
 
+    # Mark all mounted repos as safe for git (ownership may differ from container user)
+    git config --global --add safe.directory '*'
+
     # GitNexus-specific: clean, analyze, wiki
     echo "=========================================="
     echo "GitNexus Repository Analysis Phase"

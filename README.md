@@ -357,7 +357,7 @@ When HTTPS is enabled (`ENABLE_HTTPS=true`), use TLS endpoints:
 | `PORT` | `8010` | `1`-`65535` | External HAProxy port (MCP + Web UI + API, all on one port) |
 | `PROTOCOL` | `SHTTP` | `SHTTP`, `SSE`, `WS` | MCP transport protocol |
 
-> **Internal ports** (`INTERNAL_PORT`, `WEB_UI_PORT`, `WEB_UI_STATIC_PORT`) default to `38011`, `4747`, and `3000` respectively. These are used internally by HAProxy and should only be changed if you have port conflicts inside the container.
+> **Internal ports** (`INTERNAL_PORT`, `WEB_UI_PORT`) default to `38011` and `4747` respectively. These are used internally by HAProxy and should only be changed if you have port conflicts inside the container. The static file server port (`39012`) is a fixed constant and not configurable.
 
 #### Security & TLS
 

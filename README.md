@@ -54,7 +54,7 @@
 - **Multi-Architecture Support** - Native support for x86-64 and ARM64
 - **Multiple Transport Protocols** - Streamable HTTP, SSE, and WebSocket support (selectable via env var)
 - **Repository Auto-Analysis** - Automatically indexes all repositories in the data directory on startup
-- **Web UI** - Built-in web interface for browsing indexed repositories (accessible from outside the container)
+- **Self-Hosted Web UI** - Built-in web interface served on the same port as MCP (no external Vercel dependency)
 - **Wiki Generation** - AI-powered wiki generation with OpenAI, Ollama, vLLM, or any OpenAI-compatible API
 - **Secure by Design** - API key auth (case-insensitive Bearer), CORS, TLS termination, security headers (X-Content-Type-Options, X-Frame-Options, HSTS)
 - **High Performance** - ZSTD compression for faster deployments
@@ -102,15 +102,12 @@ services:
     container_name: gitnexus-mcp
     restart: unless-stopped
     ports:
-      - "8010:8010"   # MCP endpoint
-      - "4747:4747"   # Web UI
+      - "8010:8010"   # MCP + Web UI + API (all via HAProxy)
     volumes:
       - /path/to/your/repos:/data:rw
       - gitnexus-registry:/home/node/.gitnexus   # Persist index registry across recreations
     environment:
       - PORT=8010
-      - INTERNAL_PORT=38011
-      - WEB_UI_PORT=4747
       - PUID=1000
       - PGID=1000
       - TZ=Asia/Dhaka
@@ -150,12 +147,9 @@ docker run -d \
   --name=gitnexus-mcp \
   --restart=unless-stopped \
   -p 8010:8010 \
-  -p 4747:4747 \
   -v /path/to/your/repos:/data:rw \
   -v gitnexus-registry:/home/node/.gitnexus \
   -e PORT=8010 \
-  -e INTERNAL_PORT=38011 \
-  -e WEB_UI_PORT=4747 \
   -e PUID=1000 \
   -e PGID=1000 \
   -e TZ=Asia/Dhaka \
@@ -176,8 +170,7 @@ services:
     container_name: gitnexus-mcp
     restart: unless-stopped
     ports:
-      - "8010:8010"   # MCP endpoint (HAProxy)
-      - "4747:4747"   # Web UI
+      - "8010:8010"   # MCP + Web UI + API (all via HAProxy)
     volumes:
       - /path/to/your/repos:/data:rw
       - gitnexus-registry:/home/node/.gitnexus   # Persist index registry
@@ -185,8 +178,6 @@ services:
     environment:
       # Core
       - PORT=8010
-      - INTERNAL_PORT=38011
-      - WEB_UI_PORT=4747
       - PUID=1000
       - PGID=1000
       - TZ=Asia/Dhaka
@@ -238,12 +229,10 @@ docker run -d \
   --restart=unless-stopped \
   --gpus all \
   -p 8010:8010 \
-  -p 4747:4747 \
   -v /path/to/your/repos:/data:rw \
   -v gitnexus-registry:/home/node/.gitnexus \
   -v /path/to/certs:/etc/haproxy/certs:ro \
   -e PORT=8010 \
-  -e WEB_UI_PORT=4747 \
   -e PUID=1000 \
   -e PGID=1000 \
   -e TZ=Asia/Dhaka \
@@ -274,7 +263,6 @@ services:
     restart: unless-stopped
     ports:
       - "8010:8010"
-      - "4747:4747"
     volumes:
       - /path/to/your/repos:/data:rw
       - gitnexus-registry:/home/node/.gitnexus   # Persist index registry
@@ -313,25 +301,34 @@ volumes:
 
 ### Access Endpoints
 
+All services are accessible on a **single port** (default `8010`) via HAProxy routing:
+
 | Service | Endpoint | Description |
 |:--------|:---------|:------------|
+| **Web UI** | `http://host-ip:8010/` | Self-hosted GitNexus web interface for browsing repositories |
 | **MCP (SHTTP)** | `http://host-ip:8010/mcp` | Streamable HTTP MCP endpoint (recommended) |
 | **MCP (SSE)** | `http://host-ip:8010/sse` | Server-Sent Events MCP endpoint |
 | **MCP (WS)** | `ws://host-ip:8010/message` | WebSocket MCP endpoint |
-| **Web UI** | `http://host-ip:4747` | GitNexus Web UI for browsing repositories |
+| **REST API** | `http://host-ip:8010/api/*` | GitNexus REST API (repos, search, graph, etc.) |
 | **Health** | `http://host-ip:8010/healthz` | Health check endpoint |
 
 When HTTPS is enabled (`ENABLE_HTTPS=true`), use TLS endpoints:
 
 | Service | Endpoint |
 |:--------|:---------|
+| **Web UI** | `https://host-ip:8010/` |
 | **MCP (SHTTP)** | `https://host-ip:8010/mcp` |
 | **MCP (SSE)** | `https://host-ip:8010/sse` |
 | **MCP (WS)** | `wss://host-ip:8010/message` |
 
-> **Web UI Access:** The `gitnexus serve` command binds to `0.0.0.0`, so the Web UI on port 4747 is directly accessible from outside the container at `http://<host-ip>:4747`. No additional configuration is needed.
+> **Single-Port Architecture:** HAProxy routes all traffic on port 8010:
+> - `/mcp`, `/healthz` → Supergateway (MCP protocol)
+> - `/api/*` → GitNexus API server
+> - `/*` → Self-hosted web UI (static files)
+>
+> The web UI auto-discovers the API at the same origin — no CORS configuration or separate port needed. Set `ENABLE_WEB_UI=false` for MCP-only mode.
 
-> **Smart Healthcheck:** The container uses an analysis-aware healthcheck script (`healthcheck.sh`) that understands the multi-phase startup process. During `gitnexus analyze` and `gitnexus wiki` phases, the healthcheck reports healthy so the container does not get marked unhealthy during long analysis runs. During the brief gap between analysis completion and server startup, it checks port availability. Once services are fully running, it falls back to the real `/healthz` endpoint for accurate health reporting.
+> **Smart Healthcheck:** The container uses an analysis-aware healthcheck script that understands the multi-phase startup. During `gitnexus analyze` and `gitnexus wiki` phases, it reports healthy so the container is not marked unhealthy during long analysis runs. Once services are running, it checks the real `/healthz` endpoint.
 
 > **Security Warning:** The container defaults to HTTP (`ENABLE_HTTPS=false`) for easier local setup. Use `ENABLE_HTTPS=true` with your own certificates for production. See [CERTIFICATE_SETUP_GUIDE.md](CERTIFICATE_SETUP_GUIDE.md) for instructions.
 >
@@ -357,10 +354,10 @@ When HTTPS is enabled (`ENABLE_HTTPS=true`), use TLS endpoints:
 
 | Variable | Default | Possible Values | Description |
 |:---------|:-------:|:----------------|:------------|
-| `PORT` | `8010` | `1`-`65535` | External HAProxy port for MCP endpoint |
-| `INTERNAL_PORT` | `38011` | `1`-`65535` | Internal supergateway port (should not conflict with PORT) |
-| `WEB_UI_PORT` | `4747` | `1`-`65535` | GitNexus Web UI port |
+| `PORT` | `8010` | `1`-`65535` | External HAProxy port (MCP + Web UI + API, all on one port) |
 | `PROTOCOL` | `SHTTP` | `SHTTP`, `SSE`, `WS` | MCP transport protocol |
+
+> **Internal ports** (`INTERNAL_PORT`, `WEB_UI_PORT`, `WEB_UI_STATIC_PORT`) default to `38011`, `4747`, and `3000` respectively. These are used internally by HAProxy and should only be changed if you have port conflicts inside the container.
 
 #### Security & TLS
 
@@ -570,11 +567,10 @@ services:
     image: mekayelanik/gitnexus-mcp:latest
     ports:
       - "8010:8010"
-      - "4747:4747"
 ```
 
 **Benefits:** Container isolation, easy setup, works everywhere
-**Access:** `http://localhost:8010/mcp` and `http://localhost:4747`
+**Access:** `http://localhost:8010` (Web UI), `http://localhost:8010/mcp` (MCP)
 
 ---
 
@@ -589,7 +585,7 @@ services:
 
 **Benefits:** Maximum performance, no NAT overhead, no port mapping needed
 **Considerations:** Linux only, shares host network namespace
-**Access:** `http://localhost:8010/mcp` and `http://localhost:4747`
+**Access:** `http://localhost:8010` (Web UI), `http://localhost:8010/mcp` (MCP)
 
 ---
 
@@ -617,7 +613,7 @@ networks:
 
 **Benefits:** Dedicated IP, direct LAN access
 **Considerations:** Linux only, requires additional setup
-**Access:** `http://192.168.1.100:8010/mcp` and `http://192.168.1.100:4747`
+**Access:** `http://192.168.1.100:8010` (Web UI), `http://192.168.1.100:8010/mcp` (MCP)
 
 ---
 
@@ -657,7 +653,7 @@ docker run --rm \
 ### Pre-Flight Checklist
 
 - Docker Engine 23.0+
-- Ports 8010 and 4747 available
+- Port 8010 available
 - Sufficient startup time (ARM devices: 60-120s)
 - Latest image
 - Correct DATA_DIR with repository subdirectories
@@ -666,7 +662,7 @@ docker run --rm \
 
 | Issue | Solution |
 |:------|:---------|
-| Container won't start | `docker logs gitnexus-mcp`, check port conflicts: `sudo netstat -tulpn \| grep -E '8010\|4747'` |
+| Container won't start | `docker logs gitnexus-mcp`, check port conflicts: `sudo netstat -tulpn \| grep 8010` |
 | Container stays unhealthy | This should not happen during analysis. The smart healthcheck tolerates long `analyze`/`wiki` phases. If unhealthy persists after startup completes, check `docker logs gitnexus-mcp` for errors |
 | No repos analyzed | Verify mount: `ls -la /path/to/repos/` - each repo must be a subdirectory |
 | Permission errors | Match PUID/PGID to host: `id $USER`, fix with `sudo chown -R 1000:1000 /path/to/repos` |

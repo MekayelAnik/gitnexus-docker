@@ -720,6 +720,7 @@ main() {
     PORT="$(validate_port "PORT" "$PORT" "$DEFAULT_PORT")"
     INTERNAL_PORT="$(validate_port "INTERNAL_PORT" "$INTERNAL_PORT" "$DEFAULT_INTERNAL_PORT")"
     WEB_UI_PORT="$(validate_port "WEB_UI_PORT" "$WEB_UI_PORT" "$DEFAULT_WEB_UI_PORT")"
+    WEB_UI_STATIC_PORT="$(validate_port "WEB_UI_STATIC_PORT" "$WEB_UI_STATIC_PORT" "$DEFAULT_WEB_UI_STATIC_PORT")"
     TLS_MIN_VERSION="$(validate_tls_min_version "$TLS_MIN_VERSION" "$DEFAULT_TLS_MIN_VERSION")"
     HTTP_VERSION_MODE="$(normalize_http_version_mode "$HTTP_VERSION_MODE")"
 
@@ -806,7 +807,7 @@ main() {
     echo "=========================================="
     echo "GitNexus MCP Server: port ${PORT} (${PROTOCOL_DISPLAY})"
     if is_true "${ENABLE_WEB_UI:-true}"; then
-        echo "GitNexus Web UI:     port ${WEB_UI_PORT}"
+        echo "GitNexus Web UI:     http://0.0.0.0:${PORT}/"
     fi
     echo "=========================================="
 
@@ -814,6 +815,9 @@ main() {
     local pids=("$MCP_PID" "$HAPROXY_PID")
     if [[ -n "${WEB_UI_PID:-}" ]]; then
         pids+=("$WEB_UI_PID")
+    fi
+    if [[ -n "${WEB_UI_STATIC_PID:-}" ]]; then
+        pids+=("$WEB_UI_STATIC_PID")
     fi
     wait -n "${pids[@]}"
 }

@@ -24,6 +24,10 @@ frontend mcp_frontend
     acl is_health_check path /healthz
     acl is_localhost src 127.0.0.1 ::1
 
+    # Route ACLs
+    acl is_mcp_path path_beg /mcp
+    acl is_api_path path_beg /api
+
     # Define ACL that's always false (for CORS disabled scenario)
     acl always_false always_false
 
@@ -50,10 +54,27 @@ frontend mcp_frontend
     http-response set-header X-Frame-Options "DENY"
     http-response set-header Strict-Transport-Security "max-age=31536000; includeSubDomains" if { ssl_fc }
 
-    # Route to backend
-    default_backend mcp_backend
+    # Route: MCP protocol and health check -> Supergateway
+    use_backend mcp_backend if is_mcp_path
+    use_backend mcp_backend if is_health_check is_localhost
 
-# Backend - forwards to the actual MCP server
+    # Route: API requests -> gitnexus serve
+    use_backend web_api_backend if is_api_path
+
+    # Route: Everything else -> static frontend
+    default_backend web_static_backend
+
+# Backend - Supergateway MCP server
 backend mcp_backend
     balance roundrobin
     server __SERVER_NAME__ 127.0.0.1:__INTERNAL_PORT__ check
+
+# Backend - GitNexus API server (gitnexus serve)
+backend web_api_backend
+    balance roundrobin
+    server gitnexus-api 127.0.0.1:__WEB_UI_PORT__
+
+# Backend - Static frontend files (serve)
+backend web_static_backend
+    balance roundrobin
+    server gitnexus-static 127.0.0.1:__WEB_UI_STATIC_PORT__

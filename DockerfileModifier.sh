@@ -30,6 +30,22 @@ else
         echo "ARG GITNEXUS_VERSION=$GITNEXUS_VERSION"
         cat << EOF
 FROM $HAPROXY_IMAGE AS haproxy-src
+
+# ── Frontend build stage (discarded — only dist/ is copied) ──
+FROM node:22-slim AS frontend-builder
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/*
+WORKDIR /build
+RUN git clone --depth 1 --branch v${GITNEXUS_VERSION} https://github.com/abhigyanpatwari/GitNexus.git . \
+    || git clone --depth 1 https://github.com/abhigyanpatwari/GitNexus.git .
+# Build gitnexus-shared first (file: dep of gitnexus-web)
+RUN --mount=type=cache,target=/root/.npm \
+    cd gitnexus-shared && npm ci --ignore-scripts --no-audit --no-fund && npx tsc
+# Build gitnexus-web (produces dist/)
+RUN --mount=type=cache,target=/root/.npm \
+    cd gitnexus-web && npm ci --ignore-scripts --no-audit --no-fund && npm run build
+# Strip source maps and unnecessary files from dist
+RUN find /build/gitnexus-web/dist -name '*.map' -delete 2>/dev/null; true
+
 FROM $BASE_IMAGE AS build
 
 # Author info:
@@ -58,6 +74,9 @@ RUN apt-get update && \
 COPY --from=haproxy-src /usr/local/sbin/haproxy /usr/sbin/haproxy
 RUN mkdir -p /usr/local/sbin && ln -sf /usr/sbin/haproxy /usr/local/sbin/haproxy
 
+# Copy pre-built frontend static files from build stage
+COPY --from=frontend-builder /build/gitnexus-web/dist /usr/local/share/gitnexus-web
+
 # Create the data directory for repositories and state directory for lifecycle sentinels
 RUN mkdir -p /data /state && chown node:node /data /state
 
@@ -69,6 +88,8 @@ RUN apt-get update && \
     npm install -g ${GITNEXUS_MCP_PKG} --omit=dev --no-audit --no-fund --loglevel error && \
     echo "Installing Supergateway..." && \
     npm install -g ${SUPERGATEWAY_PKG} --omit=dev --no-audit --no-fund --loglevel error && \
+    echo "Installing serve (static file server)..." && \
+    npm install -g serve@latest --omit=dev --no-audit --no-fund --loglevel error && \
     bash /usr/local/bin/optimize.sh && \
     rm -f /usr/local/bin/optimize.sh && \
     apt-get purge -y python3 make g++ binutils && \

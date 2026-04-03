@@ -6,6 +6,8 @@ readonly DEFAULT_PGID=1000
 readonly DEFAULT_PORT=8010
 readonly DEFAULT_INTERNAL_PORT=38011
 readonly DEFAULT_WEB_UI_PORT=4747
+readonly DEFAULT_WEB_UI_STATIC_PORT=3000
+readonly WEB_UI_STATIC_DIR="/usr/local/share/gitnexus-web"
 readonly DEFAULT_PROTOCOL="SHTTP"
 readonly DEFAULT_TLS_MIN_VERSION="TLSv1.3"
 readonly DEFAULT_HTTP_VERSION_MODE="auto"
@@ -416,6 +418,8 @@ generate_haproxy_config() {
         -e "s|__BIND_PARAMS__|${escaped_bind_params}|g" \
         -e "s|__QUIC_BIND_LINE__|${escaped_quic_bind_line}|g" \
         -e "s|__INTERNAL_PORT__|${INTERNAL_PORT}|g" \
+        -e "s|__WEB_UI_PORT__|${WEB_UI_PORT}|g" \
+        -e "s|__WEB_UI_STATIC_PORT__|${WEB_UI_STATIC_PORT}|g" \
         -e "s|__SERVER_NAME__|${HAPROXY_SERVER_NAME}|g" \
         -e "s|__CORS_PREFLIGHT_CONDITION__|${cors_preflight_condition}|g" \
         -e "s|__CORS_RESPONSE_CONDITION__|${cors_response_condition}|g" \
@@ -640,15 +644,36 @@ start_web_ui() {
         return
     fi
 
-    echo "Starting GitNexus Web UI on port ${WEB_UI_PORT}"
+    echo "Starting GitNexus API server on port ${WEB_UI_PORT}"
 
     if [ "$(id -u)" -eq 0 ]; then
-        gosu node gitnexus serve --port "$WEB_UI_PORT" --host 0.0.0.0 &
+        gosu node gitnexus serve --port "$WEB_UI_PORT" &
     else
-        gitnexus serve --port "$WEB_UI_PORT" --host 0.0.0.0 &
+        gitnexus serve --port "$WEB_UI_PORT" &
     fi
 
     WEB_UI_PID=$!
+}
+
+start_web_static() {
+    if ! is_true "${ENABLE_WEB_UI:-true}"; then
+        return
+    fi
+
+    if [[ ! -d "$WEB_UI_STATIC_DIR" ]]; then
+        echo "Web UI static files not found at ${WEB_UI_STATIC_DIR}, skipping static server"
+        return
+    fi
+
+    echo "Starting Web UI static server on port ${WEB_UI_STATIC_PORT}"
+
+    if [ "$(id -u)" -eq 0 ]; then
+        gosu node npx serve "$WEB_UI_STATIC_DIR" -l "$WEB_UI_STATIC_PORT" --no-clipboard --single &
+    else
+        npx serve "$WEB_UI_STATIC_DIR" -l "$WEB_UI_STATIC_PORT" --no-clipboard --single &
+    fi
+
+    WEB_UI_STATIC_PID=$!
 }
 
 shutdown() {
@@ -661,6 +686,9 @@ shutdown() {
     fi
     if [[ -n "${WEB_UI_PID:-}" ]]; then
         kill "$WEB_UI_PID" 2>/dev/null || true
+    fi
+    if [[ -n "${WEB_UI_STATIC_PID:-}" ]]; then
+        kill "$WEB_UI_STATIC_PID" 2>/dev/null || true
     fi
     wait 2>/dev/null || true
 }
@@ -678,6 +706,7 @@ main() {
     PORT="${PORT:-$DEFAULT_PORT}"
     INTERNAL_PORT="${INTERNAL_PORT:-$DEFAULT_INTERNAL_PORT}"
     WEB_UI_PORT="${WEB_UI_PORT:-$DEFAULT_WEB_UI_PORT}"
+    WEB_UI_STATIC_PORT="${WEB_UI_STATIC_PORT:-$DEFAULT_WEB_UI_STATIC_PORT}"
     PROTOCOL="${PROTOCOL:-$DEFAULT_PROTOCOL}"
     ENABLE_HTTPS="${ENABLE_HTTPS:-false}"
     TLS_CERT_PATH="${TLS_CERT_PATH:-/etc/haproxy/certs/server.crt}"
@@ -746,6 +775,7 @@ main() {
 
     start_mcp_server
     start_web_ui
+    start_web_static
     start_haproxy
 
     if [[ -n "$API_KEY" ]]; then

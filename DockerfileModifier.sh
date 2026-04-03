@@ -33,7 +33,7 @@ FROM $HAPROXY_IMAGE AS haproxy-src
 
 # ── Frontend build stage (discarded — only dist/ is copied) ──
 # Always clones latest main — the web UI is a generic graph viewer compatible with all API versions.
-FROM node:22-slim AS frontend-builder
+FROM ghcr.io/mekayelanik/base-images/node:22-slim AS frontend-builder
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/*
 WORKDIR /build
 RUN git clone --depth 1 https://github.com/abhigyanpatwari/GitNexus.git .

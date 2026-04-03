@@ -32,17 +32,17 @@ else
 FROM $HAPROXY_IMAGE AS haproxy-src
 
 # ── Frontend build stage (discarded — only dist/ is copied) ──
+# Always clones latest main — the web UI is a generic graph viewer compatible with all API versions.
 FROM node:22-slim AS frontend-builder
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/*
 WORKDIR /build
-RUN git clone --depth 1 --branch v${GITNEXUS_VERSION} https://github.com/abhigyanpatwari/GitNexus.git . \
-    || git clone --depth 1 https://github.com/abhigyanpatwari/GitNexus.git .
+RUN git clone --depth 1 https://github.com/abhigyanpatwari/GitNexus.git .
 # Build gitnexus-shared first (file: dep of gitnexus-web)
 RUN --mount=type=cache,target=/root/.npm \
-    cd gitnexus-shared && npm ci --ignore-scripts --no-audit --no-fund && npx tsc
+    cd gitnexus-shared && npm install --ignore-scripts --no-audit --no-fund && npx tsc
 # Build gitnexus-web (produces dist/)
 RUN --mount=type=cache,target=/root/.npm \
-    cd gitnexus-web && npm ci --ignore-scripts --no-audit --no-fund && npm run build
+    cd gitnexus-web && npm install --ignore-scripts --no-audit --no-fund && npm run build
 # Strip source maps and unnecessary files from dist
 RUN find /build/gitnexus-web/dist -name '*.map' -delete 2>/dev/null; true
 

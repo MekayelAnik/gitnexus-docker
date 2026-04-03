@@ -3,6 +3,7 @@ set -euxo pipefail
 # Set variables first
 REPO_NAME='gitnexus-mcp'
 BASE_IMAGE=$(cat ./build_data/base-image 2>/dev/null || echo "node:22-trixie-slim")
+FRONTEND_BUILD_IMAGE=$(cat ./build_data/frontend-build-image 2>/dev/null || echo "ghcr.io/mekayelanik/base-images/node:22-slim")
 HAPROXY_IMAGE=$(cat ./build_data/haproxy-image 2>/dev/null || echo "haproxy:lts")
 GITNEXUS_VERSION=$(cat ./build_data/version 2>/dev/null || exit 1)
 GITNEXUS_MCP_PKG="gitnexus@${GITNEXUS_VERSION}"
@@ -33,7 +34,7 @@ FROM $HAPROXY_IMAGE AS haproxy-src
 
 # ── Frontend build stage (discarded — only dist/ is copied) ──
 # Always clones latest main — the web UI is a generic graph viewer compatible with all API versions.
-FROM ghcr.io/mekayelanik/base-images/node:22-slim AS frontend-builder
+FROM $FRONTEND_BUILD_IMAGE AS frontend-builder
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/*
 WORKDIR /build
 RUN git clone --depth 1 https://github.com/abhigyanpatwari/GitNexus.git .

@@ -445,13 +445,19 @@ start_haproxy() {
 }
 
 run_gitnexus_clean() {
+    # Run as node user so registry path matches serve/mcp processes
+    local run_cmd=()
+    if [ "$(id -u)" -eq 0 ]; then
+        run_cmd=(gosu node)
+    fi
+
     if is_true "${CLEAN_ALL_FORCE:-false}"; then
         if [[ -f "$CLEAN_ALL_DONE_FILE" ]]; then
             echo "Clean --all --force already completed this container lifecycle, skipping"
             return
         fi
         echo "Running gitnexus clean --all --force..."
-        if gitnexus clean --all --force; then
+        if "${run_cmd[@]}" gitnexus clean --all --force; then
             touch "$CLEAN_ALL_DONE_FILE"
         else
             echo "Warning: gitnexus clean --all --force returned non-zero (will retry on next restart)"
@@ -465,7 +471,7 @@ run_gitnexus_clean() {
             return
         fi
         echo "Running gitnexus clean..."
-        if gitnexus clean; then
+        if "${run_cmd[@]}" gitnexus clean; then
             touch "$CLEAN_DONE_FILE"
         else
             echo "Warning: gitnexus clean returned non-zero (will retry on next restart)"
@@ -507,19 +513,26 @@ run_gitnexus_analyze() {
         analyze_args+=("--verbose")
     fi
 
+    # Run analyze as the same user that will run serve/mcp (node),
+    # so the repo registry (~/.gitnexus/) is shared between all processes.
+    local run_cmd=()
+    if [ "$(id -u)" -eq 0 ]; then
+        run_cmd=(gosu node)
+    fi
+
     local found_repos=0
     for repo_dir in "$data_dir"/*/; do
         if [[ -d "$repo_dir" ]]; then
             found_repos=1
             echo "Analyzing repository: ${repo_dir}"
-            (cd "$repo_dir" && gitnexus analyze "${analyze_args[@]}" 2>&1) || \
+            (cd "$repo_dir" && "${run_cmd[@]}" gitnexus analyze "${analyze_args[@]}" 2>&1) || \
                 echo "Warning: gitnexus analyze failed for ${repo_dir}"
         fi
     done
 
     if [[ "$found_repos" -eq 0 ]]; then
         echo "No subdirectories found in ${data_dir}. Analyzing root data directory..."
-        (cd "$data_dir" && gitnexus analyze "${analyze_args[@]}" 2>&1) || \
+        (cd "$data_dir" && "${run_cmd[@]}" gitnexus analyze "${analyze_args[@]}" 2>&1) || \
             echo "Warning: gitnexus analyze failed for ${data_dir}"
     fi
 
@@ -552,10 +565,16 @@ run_gitnexus_wiki() {
         fi
     fi
 
+    # Run as node user so registry path matches serve/mcp processes
+    local run_cmd=()
+    if [ "$(id -u)" -eq 0 ]; then
+        run_cmd=(gosu node)
+    fi
+
     for repo_dir in "$data_dir"/*/; do
         if [[ -d "$repo_dir" ]]; then
             echo "Generating wiki for: ${repo_dir}"
-            (cd "$repo_dir" && gitnexus wiki "${wiki_args[@]}" 2>&1) || \
+            (cd "$repo_dir" && "${run_cmd[@]}" gitnexus wiki "${wiki_args[@]}" 2>&1) || \
                 echo "Warning: gitnexus wiki failed for ${repo_dir}"
         fi
     done

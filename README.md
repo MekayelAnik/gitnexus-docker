@@ -54,7 +54,7 @@
 - **Multi-Architecture Support** - Native support for x86-64 and ARM64
 - **Multiple Transport Protocols** - Streamable HTTP, SSE, and WebSocket support (selectable via env var)
 - **Repository Auto-Analysis** - Automatically indexes all repositories in the data directory on startup
-- **Web UI** - Built-in web interface for browsing indexed repositories
+- **Web UI** - Built-in web interface for browsing indexed repositories (accessible from outside the container)
 - **Wiki Generation** - AI-powered wiki generation with OpenAI, Ollama, vLLM, or any OpenAI-compatible API
 - **Secure by Design** - API key auth (case-insensitive Bearer), CORS, TLS termination, security headers (X-Content-Type-Options, X-Frame-Options, HSTS)
 - **High Performance** - ZSTD compression for faster deployments
@@ -328,6 +328,10 @@ When HTTPS is enabled (`ENABLE_HTTPS=true`), use TLS endpoints:
 | **MCP (SHTTP)** | `https://host-ip:8010/mcp` |
 | **MCP (SSE)** | `https://host-ip:8010/sse` |
 | **MCP (WS)** | `wss://host-ip:8010/message` |
+
+> **Web UI Access:** The `gitnexus serve` command binds to `0.0.0.0`, so the Web UI on port 4747 is directly accessible from outside the container at `http://<host-ip>:4747`. No additional configuration is needed.
+
+> **Smart Healthcheck:** The container uses an analysis-aware healthcheck script (`healthcheck.sh`) that understands the multi-phase startup process. During `gitnexus analyze` and `gitnexus wiki` phases, the healthcheck reports healthy so the container does not get marked unhealthy during long analysis runs. During the brief gap between analysis completion and server startup, it checks port availability. Once services are fully running, it falls back to the real `/healthz` endpoint for accurate health reporting.
 
 > **Security Warning:** The container defaults to HTTP (`ENABLE_HTTPS=false`) for easier local setup. Use `ENABLE_HTTPS=true` with your own certificates for production. See [CERTIFICATE_SETUP_GUIDE.md](CERTIFICATE_SETUP_GUIDE.md) for instructions.
 >
@@ -663,6 +667,7 @@ docker run --rm \
 | Issue | Solution |
 |:------|:---------|
 | Container won't start | `docker logs gitnexus-mcp`, check port conflicts: `sudo netstat -tulpn \| grep -E '8010\|4747'` |
+| Container stays unhealthy | This should not happen during analysis. The smart healthcheck tolerates long `analyze`/`wiki` phases. If unhealthy persists after startup completes, check `docker logs gitnexus-mcp` for errors |
 | No repos analyzed | Verify mount: `ls -la /path/to/repos/` - each repo must be a subdirectory |
 | Permission errors | Match PUID/PGID to host: `id $USER`, fix with `sudo chown -R 1000:1000 /path/to/repos` |
 | Client can't connect | Test: `curl http://localhost:8010/mcp`, check firewall: `sudo ufw status` |

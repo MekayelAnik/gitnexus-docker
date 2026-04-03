@@ -23,6 +23,7 @@
 8. **Use `github-mcp` tools** for GitHub operations, not `gh` CLI.
 9. **Use `ctx_fetch_and_index`** instead of WebFetch for URL content.
 10. **Use `docfork`** as first choice for library/framework documentation.
+11. **README.md char limit: 24800.** When editing README.md, the final file must be very close to but not exceed 24800 characters. No sections or items may be omitted — reduce verbosity instead. Verify with `wc -c` after editing.
 
 ---
 

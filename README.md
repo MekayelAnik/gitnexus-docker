@@ -37,7 +37,7 @@
 
 ## Buy Me a Coffee
 
-**Your support encourages me to keep creating/supporting my open-source projects.** If you found value in this project, you can buy me a coffee to keep me inspired.
+**If you found value in this project, you can buy me a coffee to keep me inspired.**
 
 <p align="center">
 <a href="https://07mekayel07.gumroad.com/coffee" target="_blank">
@@ -47,16 +47,16 @@
 
 ## Overview
 
-[GitNexus](https://github.com/abhigyanpatwari/GitNexus) is a powerful code intelligence MCP server that builds a knowledge graph of your codebase using LadybugDB (embedded graph database), indexes repositories with Tree-sitter parsing, generates embeddings, creates wiki documentation, and provides AI-powered code search and navigation. This Docker image packages GitNexus for distributed/remote deployment with HAProxy as a reverse proxy, supporting multiple transport protocols, API key authentication, CORS, and HTTP/1.1, HTTP/2, and HTTP/3 (QUIC).
+[GitNexus](https://github.com/abhigyanpatwari/GitNexus) is a code intelligence MCP server that builds a knowledge graph of your codebase using LadybugDB, indexes repositories with Tree-sitter parsing, generates embeddings, creates wiki documentation, and provides AI-powered code search. This image packages GitNexus for distributed deployment with HAProxy, supporting multiple transports, API key auth, CORS, and HTTP/1.1, HTTP/2, HTTP/3 (QUIC).
 
 ### Key Features
 
-- **Multi-Architecture Support** - Native support for x86-64 and ARM64
-- **Multiple Transport Protocols** - Streamable HTTP, SSE, and WebSocket support (selectable via env var)
+- **Multi-Architecture Support** - Native x86-64 and ARM64 support
+- **Multiple Transport Protocols** - Streamable HTTP, SSE, and WebSocket (selectable via env var)
 - **Repository Auto-Analysis** - Automatically indexes all repositories in the data directory on startup
-- **Self-Hosted Web UI** - Built-in web interface served on the same port as MCP (no external Vercel dependency)
-- **Wiki Generation** - AI-powered wiki generation with OpenAI, Ollama, vLLM, or any OpenAI-compatible API
-- **Secure by Design** - API key auth (case-insensitive Bearer), CORS, TLS termination, security headers (X-Content-Type-Options, X-Frame-Options, HSTS)
+- **Self-Hosted Web UI** - Built-in web interface served on the same port as MCP
+- **Wiki Generation** - AI-powered wiki with OpenAI, Ollama, vLLM, or any OpenAI-compatible API
+- **Secure by Design** - API key auth (case-insensitive Bearer), CORS, TLS termination, security headers
 - **High Performance** - ZSTD compression for faster deployments
 
 ---
@@ -82,12 +82,12 @@
 ### System Requirements
 
 - **Docker Engine:** 23.0+
-- **RAM:** Minimum 1GB (2GB+ recommended for embedding generation)
-- **CPU:** Single core sufficient (multi-core recommended for analysis)
-- **GPU:** Optional NVIDIA GPU for accelerated embedding generation (see [GPU Support](#gpu-support))
-- **Storage:** Depends on repository sizes being indexed
+- **RAM:** 1GB min (2GB+ recommended for embeddings)
+- **CPU:** Single core sufficient (multi-core recommended)
+- **GPU:** Optional NVIDIA GPU for accelerated embeddings (see [GPU Support](#gpu-support))
+- **Storage:** Depends on repository sizes
 
-> **CRITICAL:** Do NOT expose this container directly to the internet without proper security measures (reverse proxy, SSL/TLS, authentication, firewall rules).
+> **CRITICAL:** Do NOT expose this container directly to the internet without proper security (reverse proxy, SSL/TLS, auth, firewall).
 
 ---
 
@@ -105,7 +105,7 @@ services:
       - "8010:8010"   # MCP + Web UI + API (all via HAProxy)
     volumes:
       - /path/to/your/repos:/data:rw
-      - gitnexus-registry:/home/node/.gitnexus   # Persist index registry across recreations
+      - gitnexus-registry:/home/node/.gitnexus   # Persist index registry
     environment:
       - PORT=8010
       - PUID=1000
@@ -301,18 +301,18 @@ volumes:
 
 ### Access Endpoints
 
-All services are accessible on a **single port** (default `8010`) via HAProxy routing:
+All services are accessible on a **single port** (default `8010`) via HAProxy:
 
 | Service | Endpoint | Description |
 |:--------|:---------|:------------|
-| **Web UI** | `http://host-ip:8010/` | Self-hosted GitNexus web interface for browsing repositories |
-| **MCP (SHTTP)** | `http://host-ip:8010/mcp` | Streamable HTTP MCP endpoint (recommended) |
-| **MCP (SSE)** | `http://host-ip:8010/sse` | Server-Sent Events MCP endpoint |
-| **MCP (WS)** | `ws://host-ip:8010/message` | WebSocket MCP endpoint |
-| **REST API** | `http://host-ip:8010/api/*` | GitNexus REST API (repos, search, graph, etc.) |
-| **Health** | `http://host-ip:8010/healthz` | Health check endpoint |
+| **Web UI** | `http://host-ip:8010/` | GitNexus web interface |
+| **MCP (SHTTP)** | `http://host-ip:8010/mcp` | Streamable HTTP (recommended) |
+| **MCP (SSE)** | `http://host-ip:8010/sse` | Server-Sent Events |
+| **MCP (WS)** | `ws://host-ip:8010/message` | WebSocket |
+| **REST API** | `http://host-ip:8010/api/*` | REST API (repos, search, graph) |
+| **Health** | `http://host-ip:8010/healthz` | Health check |
 
-When HTTPS is enabled (`ENABLE_HTTPS=true`), use TLS endpoints:
+With `ENABLE_HTTPS=true`, use TLS endpoints:
 
 | Service | Endpoint |
 |:--------|:---------|
@@ -321,18 +321,12 @@ When HTTPS is enabled (`ENABLE_HTTPS=true`), use TLS endpoints:
 | **MCP (SSE)** | `https://host-ip:8010/sse` |
 | **MCP (WS)** | `wss://host-ip:8010/message` |
 
-> **Single-Port Architecture:** HAProxy routes all traffic on port 8010:
-> - `/mcp`, `/healthz` → Supergateway (MCP protocol)
-> - `/api/*` → GitNexus API server
-> - `/*` → Self-hosted web UI (static files)
->
-> The web UI auto-discovers the API at the same origin — no CORS configuration or separate port needed. Set `ENABLE_WEB_UI=false` for MCP-only mode.
+> **Single-Port Architecture:** HAProxy routes all traffic on port 8010: `/mcp`, `/healthz` to Supergateway; `/api/*` to GitNexus API; `/*` to the web UI. The web UI auto-discovers the API at the same origin. Set `ENABLE_WEB_UI=false` for MCP-only mode.
 
-> **Smart Healthcheck:** The container uses an analysis-aware healthcheck script that understands the multi-phase startup. During `gitnexus analyze` and `gitnexus wiki` phases, it reports healthy so the container is not marked unhealthy during long analysis runs. Once services are running, it checks the real `/healthz` endpoint.
+> **Smart Healthcheck:** During `gitnexus analyze` and `gitnexus wiki` phases, the healthcheck reports healthy so the container is not marked unhealthy during long runs. Once services start, it checks the real `/healthz` endpoint.
 
-> **Security Warning:** The container defaults to HTTP (`ENABLE_HTTPS=false`) for easier local setup. Use `ENABLE_HTTPS=true` with your own certificates for production. See [CERTIFICATE_SETUP_GUIDE.md](CERTIFICATE_SETUP_GUIDE.md) for instructions.
->
-> **ARM Devices:** Allow 60-120 seconds for initialization (analysis + server startup).
+> **Security Warning:** Defaults to HTTP for local setup. Use `ENABLE_HTTPS=true` with your own certs for production. See [CERTIFICATE_SETUP_GUIDE.md](CERTIFICATE_SETUP_GUIDE.md).
+> **ARM Devices:** Allow 60-120s for initialization.
 
 ---
 
@@ -343,10 +337,10 @@ When HTTPS is enabled (`ENABLE_HTTPS=true`), use TLS endpoints:
 | Mount | Container Path | Purpose |
 |:------|:---------------|:--------|
 | Repository data | `/data` | Root directory containing repositories to analyze (required) |
-| Index registry | `/home/node/.gitnexus` | Global registry mapping repos to their indexes. **Persist this** with a named volume to avoid re-registration on container recreation |
-| TLS certificates | `/etc/haproxy/certs` | TLS cert/key files (only needed with `ENABLE_HTTPS=true`) |
+| Index registry | `/home/node/.gitnexus` | Registry mapping repos to indexes. **Persist** with a named volume to avoid re-registration on recreation |
+| TLS certificates | `/etc/haproxy/certs` | TLS cert/key files (only with `ENABLE_HTTPS=true`) |
 
-> **Index storage:** GitNexus stores the actual index inside `.gitnexus/` within each repository directory. Since repos are mounted from the host, indexes automatically persist. The registry at `/home/node/.gitnexus` only stores pointers — but without it, GitNexus must re-discover and re-register all repos on startup.
+> **Index storage:** Actual indexes live inside `.gitnexus/` within each repo directory and persist via the host mount. The registry at `/home/node/.gitnexus` only stores pointers -- without it, GitNexus must re-discover all repos on startup.
 
 ### Complete Environment Variables Reference
 
@@ -354,69 +348,67 @@ When HTTPS is enabled (`ENABLE_HTTPS=true`), use TLS endpoints:
 
 | Variable | Default | Possible Values | Description |
 |:---------|:-------:|:----------------|:------------|
-| `PORT` | `8010` | `1`-`65535` | External HAProxy port (MCP + Web UI + API, all on one port) |
+| `PORT` | `8010` | `1`-`65535` | External HAProxy port (MCP + Web UI + API) |
 | `PROTOCOL` | `SHTTP` | `SHTTP`, `SSE`, `WS` | MCP transport protocol |
 
-> **Internal ports** (`INTERNAL_PORT`, `WEB_UI_PORT`) default to `38011` and `4747` respectively. These are used internally by HAProxy and should only be changed if you have port conflicts inside the container. The static file server port (`39012`) is a fixed constant and not configurable.
+> **Internal ports** (`INTERNAL_PORT=38011`, `WEB_UI_PORT=4747`) are used by HAProxy and should only change if you have port conflicts inside the container. The static file server port (`39012`) is fixed.
 
 #### Security & TLS
 
 | Variable | Default | Possible Values | Description |
 |:---------|:-------:|:----------------|:------------|
-| `API_KEY` | *(empty)* | 5-256 printable chars | Enables Bearer token auth (`Authorization: Bearer <key>`) |
-| `CORS` | *(empty)* | `*`, comma-separated origins | CORS allowed origins (e.g. `https://example.com,http://localhost:3000`) |
-| `ENABLE_HTTPS` | `false` | `true`, `false` | Enables TLS termination in HAProxy (requires your own certs) |
-| `TLS_CERT_PATH` | `/etc/haproxy/certs/server.crt` | Any valid path | Path to TLS certificate file |
-| `TLS_KEY_PATH` | `/etc/haproxy/certs/server.key` | Any valid path | Path to TLS private key file |
-| `TLS_PEM_PATH` | `/etc/haproxy/certs/server.pem` | Any valid path | Combined PEM file (auto-generated from cert+key) |
-| `TLS_MIN_VERSION` | `TLSv1.3` | `TLSv1.2`, `TLSv1.3` | Minimum TLS protocol version |
-| `HTTP_VERSION_MODE` | `auto` | `auto`, `all`, `h1`, `h2`, `h3`, `h1+h2` | HTTP protocol versions to enable |
+| `API_KEY` | *(empty)* | 5-256 printable chars | Bearer token auth (`Authorization: Bearer <key>`) |
+| `CORS` | *(empty)* | `*`, comma-separated origins | CORS allowed origins (e.g. `https://example.com`) |
+| `ENABLE_HTTPS` | `false` | `true`, `false` | TLS termination in HAProxy (requires your own certs) |
+| `TLS_CERT_PATH` | `/etc/haproxy/certs/server.crt` | Any valid path | TLS certificate file |
+| `TLS_KEY_PATH` | `/etc/haproxy/certs/server.key` | Any valid path | TLS private key file |
+| `TLS_PEM_PATH` | `/etc/haproxy/certs/server.pem` | Any valid path | Combined PEM (auto-generated from cert+key) |
+| `TLS_MIN_VERSION` | `TLSv1.3` | `TLSv1.2`, `TLSv1.3` | Minimum TLS version |
+| `HTTP_VERSION_MODE` | `auto` | `auto`, `all`, `h1`, `h2`, `h3`, `h1+h2` | HTTP versions to enable |
 
 #### Container & System
 
 | Variable | Default | Possible Values | Description |
 |:---------|:-------:|:----------------|:------------|
-| `PUID` | `1000` | Any positive integer | User ID for file permissions |
-| `PGID` | `1000` | Any positive integer | Group ID for file permissions |
-| `TZ` | `Asia/Dhaka` | [TZ database names](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones) | Container timezone |
+| `PUID` | `1000` | Any positive integer | User ID for permissions |
+| `PGID` | `1000` | Any positive integer | Group ID for permissions |
+| `TZ` | `Asia/Dhaka` | [TZ database names](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones) | Timezone |
 | `NODE_ENV` | `production` | `production`, `development` | Node.js environment |
-| `ENABLE_WEB_UI` | `true` | `true`, `false` | Enable/disable GitNexus Web UI |
+| `ENABLE_WEB_UI` | `true` | `true`, `false` | Enable/disable Web UI |
 
 #### Repository Analysis
 
 | Variable | Default | Possible Values | Description |
 |:---------|:-------:|:----------------|:------------|
-| `DATA_DIR` | `/data` | Any valid path | Root directory containing repositories to analyze |
-| `ANALYZE_FORCE` | `false` | `true`, `false` | Force full re-index of all repositories (once per container lifecycle) |
-| `ANALYZE_SKILLS` | `false` | `true`, `false` | Generate repo-specific skill files from detected communities |
-| `ANALYZE_EMBEDDINGS` | `false` | `true`, `false` | Enable embedding generation for semantic search (slower, better search) |
-| `ANALYZE_SKIP_GIT` | `false` | `true`, `false` | Index folders without requiring a `.git` directory |
-| `ANALYZE_VERBOSE` | `false` | `true`, `false` | Log skipped files when parsers are unavailable |
+| `DATA_DIR` | `/data` | Any valid path | Root directory containing repos to analyze |
+| `ANALYZE_FORCE` | `false` | `true`, `false` | Force full re-index (once per container lifecycle) |
+| `ANALYZE_SKILLS` | `false` | `true`, `false` | Generate skill files from detected communities |
+| `ANALYZE_EMBEDDINGS` | `false` | `true`, `false` | Enable embeddings for semantic search (slower, better) |
+| `ANALYZE_SKIP_GIT` | `false` | `true`, `false` | Index folders without `.git` directory |
+| `ANALYZE_VERBOSE` | `false` | `true`, `false` | Log skipped files when parsers unavailable |
 
 #### Cleanup
 
 | Variable | Default | Possible Values | Description |
 |:---------|:-------:|:----------------|:------------|
-| `CLEAN_ON_START` | `false` | `true`, `false` | Run `gitnexus clean` before analysis (once per container lifecycle) |
-| `CLEAN_ALL_FORCE` | `false` | `true`, `false` | Run `gitnexus clean --all --force` (deletes ALL indexes, once per container lifecycle) |
+| `CLEAN_ON_START` | `false` | `true`, `false` | Run `gitnexus clean` before analysis (once per lifecycle) |
+| `CLEAN_ALL_FORCE` | `false` | `true`, `false` | Run `gitnexus clean --all --force` (once per lifecycle) |
 
 #### Wiki Generation
 
 | Variable | Default | Possible Values | Description |
 |:---------|:-------:|:----------------|:------------|
 | `WIKI_ENABLED` | `false` | `true`, `false` | Enable wiki generation after analysis |
-| `WIKI_MODEL` | `gpt-4o-mini` | Any model name | LLM model (e.g. `gpt-4o-mini`, `gpt-4o`, `llama3`, `mistral`) |
-| `WIKI_BASE_URL` | *(OpenAI default)* | Any URL | API base URL for LLM provider (e.g. `http://ollama:11434/v1`) |
-| `WIKI_FORCE` | `false` | `true`, `false` | Force full wiki regeneration (once per container lifecycle) |
+| `WIKI_MODEL` | `gpt-4o-mini` | Any model name | LLM model (e.g. `gpt-4o-mini`, `llama3`, `mistral`) |
+| `WIKI_BASE_URL` | *(OpenAI default)* | Any URL | LLM API base URL (e.g. `http://ollama:11434/v1`) |
+| `WIKI_FORCE` | `false` | `true`, `false` | Force wiki regeneration (once per lifecycle) |
 | `OPENAI_API_KEY` | *(empty)* | Any string | API key for OpenAI or compatible providers |
 
 > **Boolean values:** `true`, `1`, `yes`, `on` are all accepted as truthy. Everything else is falsy.
 
-> **Once per container lifecycle:** `CLEAN_ON_START`, `CLEAN_ALL_FORCE`, `ANALYZE_FORCE`, and `WIKI_FORCE` run only once after the container is created. They are skipped on subsequent restarts (e.g., crash recovery, `docker restart`). To re-trigger, recreate the container (`docker compose down && docker compose up -d`).
+> **Once per lifecycle:** `CLEAN_ON_START`, `CLEAN_ALL_FORCE`, `ANALYZE_FORCE`, and `WIKI_FORCE` run only once after creation, skipped on restarts. To re-trigger, recreate the container (`docker compose down && docker compose up -d`).
 
-#### One-Shot Operations
-
-For ad-hoc operations without setting env vars, use `docker exec`:
+#### One-Shot Operations (via `docker exec`)
 
 ```bash
 docker exec gitnexus-mcp gitnexus clean                # Clean current repo index
@@ -427,22 +419,21 @@ docker exec gitnexus-mcp gitnexus wiki --force          # Force wiki regeneratio
 
 ### HTTPS Notes
 
-- **No auto-generated certificates.** You must provide your own TLS cert and key.
-- If `TLS_CERT_PATH` and `TLS_KEY_PATH` exist, they are merged into `TLS_PEM_PATH`.
-- `HTTP_VERSION_MODE=h3` (or `auto`) enables HTTP/3 only when HAProxy build includes QUIC.
-- See [CERTIFICATE_SETUP_GUIDE.md](CERTIFICATE_SETUP_GUIDE.md) for step-by-step instructions.
+- You must provide your own TLS cert and key (no auto-generation).
+- `TLS_CERT_PATH` + `TLS_KEY_PATH` are merged into `TLS_PEM_PATH` automatically.
+- `HTTP_VERSION_MODE=h3` (or `auto`) enables HTTP/3 only when HAProxy includes QUIC.
+- See [CERTIFICATE_SETUP_GUIDE.md](CERTIFICATE_SETUP_GUIDE.md) for setup instructions.
 
 ### API Key Authentication Notes
 
-- Set `API_KEY` to enforce authentication at the reverse proxy level.
-- Expected header format: `Authorization: Bearer <API_KEY>` (case-insensitive: `bearer`, `BEARER`, etc. all work).
-- API keys may contain any printable characters including regex special characters (`.*+?$` etc.).
-- Localhost health checks (`/healthz`) remain accessible without authentication for liveness/readiness probes.
-- CORS preflight (OPTIONS) requests bypass authentication as required by the CORS specification.
+- Set `API_KEY` to enforce auth at the reverse proxy level.
+- Header: `Authorization: Bearer <API_KEY>` (case-insensitive).
+- Keys may contain any printable characters including regex special chars.
+- `/healthz` and CORS preflight (OPTIONS) bypass authentication.
 
 ### Security Headers
 
-The following security headers are automatically added to all responses via HAProxy:
+HAProxy automatically adds these headers to all responses:
 
 | Header | Value | Condition |
 |:-------|:------|:----------|
@@ -456,7 +447,7 @@ The following security headers are automatically added to all responses via HAPr
 
 ### Volume Mount Structure
 
-On startup, the container analyzes all subdirectories inside `DATA_DIR`. Mount your repositories as subdirectories of the data volume.
+The container analyzes all subdirectories inside `DATA_DIR` on startup. Mount your repositories as subdirectories.
 
 ```
 /data/                       # DATA_DIR root
@@ -477,7 +468,7 @@ On startup, the container analyzes all subdirectories inside `DATA_DIR`. Mount y
 
 ## Wiki Generation
 
-GitNexus can generate AI-powered wiki documentation for your repositories. It supports both cloud providers (OpenAI, Anthropic) and local AI servers (Ollama, vLLM, llama.cpp, etc.) via the OpenAI-compatible API. See the [Wiki Generation variables](#wiki-generation) in the table above.
+GitNexus can generate AI-powered wiki documentation for your repositories. It supports cloud (OpenAI, Anthropic) and local (Ollama, vLLM, llama.cpp) providers via the OpenAI-compatible API.
 
 | Provider | `WIKI_BASE_URL` | `WIKI_MODEL` | `OPENAI_API_KEY` |
 |:---------|:---------------|:-------------|:-----------------|
@@ -489,14 +480,7 @@ GitNexus can generate AI-powered wiki documentation for your repositories. It su
 
 ## GPU Support
 
-GitNexus uses onnxruntime-node for embedding generation. **NVIDIA GPUs** are supported for acceleration (AMD/Intel not supported by onnxruntime-node).
-
-**Prerequisites:** Install [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html), verify with `docker run --rm --gpus all nvidia/cuda:12.0-base nvidia-smi`.
-
-**Compose:** Add `deploy.resources.reservations.devices` (see Full-Featured example above).
-**CLI:** Add `--gpus all` flag.
-
-The container auto-detects GPU and falls back to CPU when unavailable.
+GitNexus uses onnxruntime-node for embeddings. **NVIDIA GPUs** supported (AMD/Intel not supported). Install [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html), verify with `docker run --rm --gpus all nvidia/cuda:12.0-base nvidia-smi`. Use `deploy.resources.reservations.devices` in Compose or `--gpus all` in CLI. Auto-falls back to CPU.
 
 ---
 
@@ -526,11 +510,7 @@ claude mcp add-json gitnexus '{"type":"http","url":"http://host-ip:8010/mcp"}'
 
 ### VS Code / Codex / Cursor / Windsurf
 
-All use the same JSON format. Configure in the respective config file:
-- **VS Code**: `.vscode/settings.json` (key: `mcp.servers`)
-- **Codex**: `~/.codex/config.json` (key: `mcpServers`)
-- **Cursor**: `~/.cursor/mcp.json` (key: `mcpServers`)
-- **Windsurf**: `.codeium/mcp_settings.json` (key: `mcpServers`)
+All use the same JSON format in their respective config files: VS Code (`.vscode/settings.json`, key `mcp.servers`), Codex (`~/.codex/config.json`), Cursor (`~/.cursor/mcp.json`), Windsurf (`.codeium/mcp_settings.json`) -- all use key `mcpServers`.
 
 ```json
 {
@@ -549,15 +529,11 @@ Test with [MCP Inspector](https://github.com/modelcontextprotocol/inspector): `n
 
 ## Network Configuration
 
-### Comparison
-
 | Network Mode | Complexity | Performance | Use Case |
 |:-------------|:----------:|:-----------:|:---------|
 | **Bridge** | Easy | Good | Default, isolated |
 | **Host** | Moderate | Excellent | Direct host access |
 | **MACVLAN** | Advanced | Excellent | Dedicated IP |
-
----
 
 ### Bridge Network (Default)
 
@@ -569,10 +545,8 @@ services:
       - "8010:8010"
 ```
 
-**Benefits:** Container isolation, easy setup, works everywhere
-**Access:** `http://localhost:8010` (Web UI), `http://localhost:8010/mcp` (MCP)
-
----
+**Benefits:** Container isolation, easy setup, works everywhere.
+**Access:** `http://localhost:8010` (Web UI + MCP)
 
 ### Host Network (Linux Only)
 
@@ -583,11 +557,8 @@ services:
     network_mode: host
 ```
 
-**Benefits:** Maximum performance, no NAT overhead, no port mapping needed
-**Considerations:** Linux only, shares host network namespace
-**Access:** `http://localhost:8010` (Web UI), `http://localhost:8010/mcp` (MCP)
-
----
+**Benefits:** Maximum performance, no NAT overhead. Linux only, shares host network namespace.
+**Access:** `http://localhost:8010` (Web UI + MCP)
 
 ### MACVLAN Network (Advanced)
 
@@ -611,9 +582,8 @@ networks:
           gateway: 192.168.1.1
 ```
 
-**Benefits:** Dedicated IP, direct LAN access
-**Considerations:** Linux only, requires additional setup
-**Access:** `http://192.168.1.100:8010` (Web UI), `http://192.168.1.100:8010/mcp` (MCP)
+**Benefits:** Dedicated IP, direct LAN access. Linux only, requires additional setup.
+**Access:** `http://192.168.1.100:8010` (Web UI + MCP)
 
 ---
 
@@ -652,21 +622,19 @@ docker run --rm \
 
 ### Pre-Flight Checklist
 
-- Docker Engine 23.0+
-- Port 8010 available
-- Sufficient startup time (ARM devices: 60-120s)
-- Latest image
+- Docker Engine 23.0+, port 8010 available, latest image
 - Correct DATA_DIR with repository subdirectories
+- ARM devices: allow 60-120s startup time
 
 ### Common Issues
 
 | Issue | Solution |
 |:------|:---------|
-| Container won't start | `docker logs gitnexus-mcp`, check port conflicts: `sudo netstat -tulpn \| grep 8010` |
-| Container stays unhealthy | This should not happen during analysis. The smart healthcheck tolerates long `analyze`/`wiki` phases. If unhealthy persists after startup completes, check `docker logs gitnexus-mcp` for errors |
-| No repos analyzed | Verify mount: `ls -la /path/to/repos/` - each repo must be a subdirectory |
-| Permission errors | Match PUID/PGID to host: `id $USER`, fix with `sudo chown -R 1000:1000 /path/to/repos` |
-| Client can't connect | Test: `curl http://localhost:8010/mcp`, check firewall: `sudo ufw status` |
+| Container won't start | `docker logs gitnexus-mcp`, check port: `sudo netstat -tulpn \| grep 8010` |
+| Stays unhealthy | Smart healthcheck tolerates long analysis. If persistent after startup, check logs |
+| No repos analyzed | Verify mount: `ls -la /path/to/repos/` - repos must be subdirectories |
+| Permission errors | Match PUID/PGID: `id $USER`, fix: `sudo chown -R 1000:1000 /path/to/repos` |
+| Client can't connect | Test: `curl http://localhost:8010/mcp`, check firewall |
 | Wiki fails | Verify: `docker exec gitnexus-mcp env \| grep OPENAI_API_KEY` |
 
 ### Debug Info
@@ -689,7 +657,7 @@ docker inspect gitnexus-mcp > inspect.json
 
 ## Buy Me a Coffee
 
-**Your support encourages me to keep creating/supporting my open-source projects.** If you found value in this project, you can buy me a coffee to keep me inspired.
+**If you found value in this project, you can buy me a coffee to keep me inspired.**
 
 <p align="center">
   <a href="https://07mekayel07.gumroad.com/coffee" target="_blank">
@@ -701,33 +669,21 @@ docker inspect gitnexus-mcp > inspect.json
 
 ### Getting Help
 
-**Docker Image Issues:**
-- GitHub: [GitNexus-docker/issues](https://github.com/MekayelAnik/GitNexus-docker/issues)
-
-**GitNexus Upstream Issues:**
-- GitHub: [abhigyanpatwari/GitNexus/issues](https://github.com/abhigyanpatwari/GitNexus/issues)
-- NPM: [npmjs.com/package/gitnexus](https://www.npmjs.com/package/gitnexus)
+- **Docker Image Issues:** [GitNexus-docker/issues](https://github.com/MekayelAnik/GitNexus-docker/issues)
+- **GitNexus Upstream Issues:** [abhigyanpatwari/GitNexus/issues](https://github.com/abhigyanpatwari/GitNexus/issues) | [NPM](https://www.npmjs.com/package/gitnexus)
 
 ### Contributing
 
-We welcome contributions:
-1. Report bugs via GitHub Issues
-2. Suggest features
-3. Improve documentation
-4. Test beta releases
+Contributions welcome: bug reports via GitHub Issues, feature suggestions, documentation improvements, and beta testing.
 
 ### License
 
-**Docker Image:** GPL v3 License. See [LICENSE](https://raw.githubusercontent.com/MekayelAnik/GitNexus-docker/refs/heads/main/LICENSE) for details.
-
-**Upstream GitNexus:** PolyForm Noncommercial License 1.0.0. See [upstream LICENSE](https://github.com/abhigyanpatwari/GitNexus/blob/main/LICENSE).
-
-This Docker image license applies only to the Docker packaging, scripts, and documentation. Users must independently comply with the upstream GitNexus license terms.
+**Docker Image:** GPL v3 ([LICENSE](https://raw.githubusercontent.com/MekayelAnik/GitNexus-docker/refs/heads/main/LICENSE)). **Upstream:** PolyForm Noncommercial 1.0.0 ([LICENSE](https://github.com/abhigyanpatwari/GitNexus/blob/main/LICENSE)). Image license covers only Docker packaging, scripts, and docs. Users must independently comply with upstream license terms.
 
 ### Credits
 
-- **GitNexus** by [Abhigyan Patwari / Akon Labs](https://github.com/abhigyanpatwari/GitNexus) - The upstream code intelligence MCP server
-- **Docker Image** by [Mohammad Mekayel Anik](https://github.com/MekayelAnik) - Docker packaging and CI/CD
+- **GitNexus** by [Abhigyan Patwari / Akon Labs](https://github.com/abhigyanpatwari/GitNexus)
+- **Docker Image** by [Mohammad Mekayel Anik](https://github.com/MekayelAnik)
 
 ---
 

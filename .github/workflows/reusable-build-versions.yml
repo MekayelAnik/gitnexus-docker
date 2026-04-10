@@ -334,7 +334,9 @@ jobs:
           ghcr_token: ${{ github.token }}
 
       - name: Download all platform digests
+        id: download-digests
         uses: actions/download-artifact@v8
+        continue-on-error: true
         with:
           path: /tmp/digests
           pattern: digest-${{ matrix.version }}-*
@@ -351,11 +353,18 @@ jobs:
           IMAGE_TAG="${{ matrix.image_tag }}"
 
           echo "Merging platform digests for $VERSION"
+
+          if [[ ! -d /tmp/digests ]] || [[ -z "$(ls -A /tmp/digests/ 2>/dev/null)" ]]; then
+            echo "No digests found — build was skipped (tags already exist). Nothing to merge."
+            exit 0
+          fi
+
           ls -la /tmp/digests/
 
           # Collect all digest sources
           SOURCES=""
           for f in /tmp/digests/*; do
+            [[ -f "$f" ]] || continue
             DIGEST="$(cat "$f")"
             SLUG="$(basename "$f")"
             echo "  $SLUG: $DIGEST"

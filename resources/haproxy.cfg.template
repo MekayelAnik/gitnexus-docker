@@ -15,17 +15,24 @@ defaults
     option  forwardfor
     option  http-server-close
 
+__WEB_AUTH_USERLIST__
+
 # Frontend - receives all incoming requests
 frontend mcp_frontend
     bind *:__SERVER_PORT__ __BIND_PARAMS__
     __QUIC_BIND_LINE__
 
-    # Define ACL for health check endpoint
+    # Define ACL for health check endpoint from localhost
     acl is_health_check path /healthz
+    acl is_localhost src 127.0.0.1 ::1
 
     # Route ACLs
     acl is_mcp_path path_beg /mcp
     acl is_api_path path_beg /api
+
+    # Paths exempt from API key auth
+    acl is_web_ui path /
+    acl is_web_ui path_beg /assets
 
     # Define ACL that's always false (for CORS disabled scenario)
     acl always_false always_false
@@ -41,6 +48,9 @@ frontend mcp_frontend
     # Handle CORS preflight (OPTIONS) requests BEFORE auth (browsers don't send credentials on preflight)
     http-request return status 204 hdr "Access-Control-Allow-Origin" "%[var(txn.origin)]" hdr "Access-Control-Allow-Methods" "GET, POST, PUT, DELETE, OPTIONS" hdr "Access-Control-Allow-Headers" "Authorization, Content-Type, X-Requested-With" hdr "Access-Control-Max-Age" "86400" if METH_OPTIONS __CORS_PREFLIGHT_CONDITION__
 
+    # Web UI Basic auth (username/password login)
+    __WEB_AUTH_CHECK__
+
     # Skip API key check for health check endpoint (always unauthenticated)
     __API_KEY_CHECK__
 
@@ -55,7 +65,7 @@ frontend mcp_frontend
 
     # Route: MCP protocol and health check -> Supergateway
     use_backend mcp_backend if is_mcp_path
-    use_backend mcp_backend if is_health_check
+    use_backend mcp_backend if is_health_check is_localhost
 
     # Route: API requests -> gitnexus serve
     use_backend web_api_backend if is_api_path

@@ -123,6 +123,30 @@ validate_api_key() {
     export API_KEY
 }
 
+validate_web_auth() {
+    WEB_USERNAME="${WEB_USERNAME:-}"
+    WEB_PASSWORD="${WEB_PASSWORD:-}"
+    WEB_USERNAME="$(trim "$WEB_USERNAME")"
+    WEB_PASSWORD="$(trim "$WEB_PASSWORD")"
+
+    if [[ -z "$WEB_USERNAME" && -z "$WEB_PASSWORD" ]]; then
+        export WEB_USERNAME="" WEB_PASSWORD=""
+        return
+    fi
+
+    if [[ -z "$WEB_USERNAME" || -z "$WEB_PASSWORD" ]]; then
+        echo "Both WEB_USERNAME and WEB_PASSWORD must be set (or both unset)." >&2
+        exit 1
+    fi
+
+    if (( ${#WEB_PASSWORD} < 8 )); then
+        echo "WEB_PASSWORD must be at least 8 characters." >&2
+        exit 1
+    fi
+
+    export WEB_USERNAME WEB_PASSWORD
+}
+
 validate_cors() {
     ALLOW_ALL_CORS=false
     HAPROXY_CORS_ENABLED=false
@@ -356,11 +380,31 @@ generate_haproxy_config() {
         exit 1
     fi
 
+    # Web UI Basic auth (username/password)
+    local web_auth_userlist
+    local web_auth_check
+    if [[ -n "$WEB_USERNAME" && -n "$WEB_PASSWORD" ]]; then
+        local hashed_password
+        hashed_password="$(openssl passwd -5 "$WEB_PASSWORD")"
+        web_auth_userlist="userlist web_users
+    user ${WEB_USERNAME} password ${hashed_password}"
+        web_auth_check="    # Web UI Basic auth - protect web UI, API, and all non-MCP routes
+    # MCP clients use Bearer token (API_KEY) instead, so skip Basic auth for /mcp
+    # Localhost health checks are always exempt
+    acl is_basic_auth var(txn.auth_header) -m beg -i Basic
+    http-request auth realm GitNexus if !is_mcp_path !is_health_check !is_basic_auth !{ http_auth(web_users) }
+    http-request deny deny_status 401 content-type \"application/json\" string '{\"error\":\"Unauthorized\",\"message\":\"Invalid credentials\"}' if !is_mcp_path !is_health_check is_basic_auth !{ http_auth(web_users) }"
+        echo "Web UI authentication enabled for user: ${WEB_USERNAME}"
+    else
+        web_auth_userlist="# Web UI authentication disabled"
+        web_auth_check="    # Web UI authentication disabled - no login required"
+    fi
+
     local api_key_check
     if [[ -n "$API_KEY" ]]; then
         local escaped_key_sed
         escaped_key_sed="$(escape_sed_replacement "$API_KEY")"
-        api_key_check="    # API Key authentication enabled (/healthz always excluded)
+        api_key_check="    # API Key authentication enabled (localhost /healthz and web UI excluded)
     acl auth_header_present var(txn.auth_header) -m found
 
     # Extract token: strip 'Bearer ' prefix (case-insensitive) into txn.api_token
@@ -369,9 +413,15 @@ generate_haproxy_config() {
     # Validate extracted token via exact string match (no regex escaping issues)
     acl auth_valid var(txn.api_token) -m str ${escaped_key_sed}
 
-    # Deny requests without valid authentication (health checks always bypass auth)
-    http-request deny deny_status 401 content-type \"application/json\" string '{\"error\":\"Unauthorized\",\"message\":\"Valid API key required\"}' if !is_health_check !auth_header_present
-    http-request deny deny_status 403 content-type \"application/json\" string '{\"error\":\"Forbidden\",\"message\":\"Invalid API key\"}' if !is_health_check auth_header_present !auth_valid"
+    # Deny requests without valid authentication
+    # Bypass: localhost health checks, web UI static assets, read-only API (GET /api/*)
+    # Write API (POST/DELETE /api/*) and MCP (/mcp) always require auth
+    http-request deny deny_status 401 content-type \"application/json\" string '{\"error\":\"Unauthorized\",\"message\":\"Valid API key required\"}' if !is_health_check !is_web_ui !is_api_path !auth_header_present
+    http-request deny deny_status 401 content-type \"application/json\" string '{\"error\":\"Unauthorized\",\"message\":\"Valid API key required\"}' if is_api_path !METH_GET !auth_header_present
+    http-request deny deny_status 401 content-type \"application/json\" string '{\"error\":\"Unauthorized\",\"message\":\"Valid API key required\"}' if is_health_check !is_localhost !auth_header_present
+    http-request deny deny_status 403 content-type \"application/json\" string '{\"error\":\"Forbidden\",\"message\":\"Invalid API key\"}' if !is_health_check !is_web_ui !is_api_path auth_header_present !auth_valid
+    http-request deny deny_status 403 content-type \"application/json\" string '{\"error\":\"Forbidden\",\"message\":\"Invalid API key\"}' if is_api_path !METH_GET auth_header_present !auth_valid
+    http-request deny deny_status 403 content-type \"application/json\" string '{\"error\":\"Forbidden\",\"message\":\"Invalid API key\"}' if is_health_check !is_localhost auth_header_present !auth_valid"
     else
         api_key_check="    # API Key authentication disabled - all requests allowed"
     fi
@@ -423,13 +473,22 @@ generate_haproxy_config() {
         -e "s|__CORS_RESPONSE_CONDITION__|${cors_response_condition}|g" \
         "$HAPROXY_TEMPLATE" > "${HAPROXY_CONFIG}.tmp"
 
-    awk -v replacement="$api_key_check" -v replacement_cors="$cors_check" '
+    awk -v replacement="$api_key_check" -v replacement_cors="$cors_check" \
+        -v replacement_web_auth="$web_auth_check" -v replacement_web_userlist="$web_auth_userlist" '
         /__API_KEY_CHECK__/ {
             print replacement
             next
         }
         /__CORS_CHECK__/ {
             print replacement_cors
+            next
+        }
+        /__WEB_AUTH_CHECK__/ {
+            print replacement_web_auth
+            next
+        }
+        /__WEB_AUTH_USERLIST__/ {
+            print replacement_web_userlist
             next
         }
         { print }
@@ -663,6 +722,20 @@ start_web_static() {
         return
     fi
 
+    # Rewrite hardcoded localhost:4747 URL in web UI JS to use browser origin via HAProxy
+    local js_bundle
+    js_bundle="$(find "$WEB_UI_STATIC_DIR/assets" -name 'index-*.js' -type f 2>/dev/null | head -n1)"
+    if [[ -n "$js_bundle" ]] && grep -q 'http://localhost:4747' "$js_bundle" 2>/dev/null; then
+        # Replace string literals (both quote styles) with window.location.origin expression
+        # "http://localhost:4747" → "+window.location.origin+"  (evaluates to origin in JS)
+        # 'http://localhost:4747' → '+window.location.origin+'  (same)
+        sed -i \
+            -e 's|"http://localhost:4747"|""+window.location.origin+""|g' \
+            -e "s|'http://localhost:4747'|''+window.location.origin+''|g" \
+            "$js_bundle"
+        echo "Patched web UI to use browser origin via HAProxy"
+    fi
+
     echo "Starting Web UI static server on port ${WEB_UI_STATIC_PORT}"
 
     if [ "$(id -u)" -eq 0 ]; then
@@ -721,6 +794,7 @@ main() {
     HTTP_VERSION_MODE="$(normalize_http_version_mode "$HTTP_VERSION_MODE")"
 
     validate_api_key
+    validate_web_auth
     validate_cors
 
     ensure_state_dir
@@ -743,6 +817,10 @@ main() {
             chown "${PUID}:${PGID}" "$subdir" 2>/dev/null || true
         fi
     done
+
+    # Ensure GitNexus registry directory has correct ownership (may be a mounted volume)
+    mkdir -p /home/node/.gitnexus
+    chown -R "${PUID}:${PGID}" /home/node/.gitnexus 2>/dev/null || true
 
     if is_true "$ENABLE_HTTPS"; then
         prepare_tls_pem "$TLS_CERT_PATH" "$TLS_KEY_PATH" "$TLS_PEM_PATH"

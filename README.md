@@ -680,6 +680,8 @@ Contributions welcome: bug reports via GitHub Issues, feature suggestions, docum
 
 **Docker Image:** GPL v3 ([LICENSE](https://raw.githubusercontent.com/MekayelAnik/GitNexus-docker/refs/heads/main/LICENSE)). **Upstream:** PolyForm Noncommercial 1.0.0 ([LICENSE](https://github.com/abhigyanpatwari/GitNexus/blob/main/LICENSE)). Image license covers only Docker packaging, scripts, and docs. Users must independently comply with upstream license terms.
 
+> Required Notice: Copyright Abhigyan Patwari (https://github.com/abhigyanpatwari/GitNexus)
+
 ### Credits
 
 - **GitNexus** by [Abhigyan Patwari / Akon Labs](https://github.com/abhigyanpatwari/GitNexus)

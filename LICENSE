@@ -14,6 +14,7 @@ The upstream GitNexus application is licensed under the PolyForm Noncommercial
 License 1.0.0, which permits noncommercial use only. Commercial use of 
 GitNexus requires an enterprise license from Akon Labs.
 
+Required Notice: Copyright Abhigyan Patwari (https://github.com/abhigyanpatwari/GitNexus)
 Upstream License: https://github.com/abhigyanpatwari/GitNexus/blob/main/LICENSE
 Upstream GitHub:  https://github.com/abhigyanpatwari/GitNexus
 NPM Package:      https://www.npmjs.com/package/gitnexus

@@ -677,19 +677,23 @@ run_gitnexus_analyze() {
         fi
     fi
 
-    if is_true "${ANALYZE_SKILLS:-false}"; then
+    # Cache supported flags (once per entrypoint run)
+    local help_text
+    help_text="$(gitnexus analyze --help 2>&1 || true)"
+
+    if is_true "${ANALYZE_SKILLS:-false}" && echo "$help_text" | grep -q -- '--skills'; then
         analyze_args+=("--skills")
     fi
 
-    if is_true "${ANALYZE_EMBEDDINGS:-false}"; then
+    if is_true "${ANALYZE_EMBEDDINGS:-false}" && echo "$help_text" | grep -q -- '--embeddings'; then
         analyze_args+=("--embeddings")
     fi
 
-    if is_true "${ANALYZE_SKIP_GIT:-false}"; then
+    if is_true "${ANALYZE_SKIP_GIT:-false}" && echo "$help_text" | grep -q -- '--skip-git'; then
         analyze_args+=("--skip-git")
     fi
 
-    if is_true "${ANALYZE_VERBOSE:-false}"; then
+    if is_true "${ANALYZE_VERBOSE:-false}" && echo "$help_text" | grep -q -- '--verbose'; then
         analyze_args+=("--verbose")
     fi
 

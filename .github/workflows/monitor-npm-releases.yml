@@ -66,7 +66,7 @@ concurrency:
 env:
   NPM_PACKAGE: 'gitnexus'
   NPM_REGISTRY: 'https://registry.npmjs.org'
-  MAX_VERSIONS: '10'
+  MAX_VERSIONS: ${{ vars.MAX_VERSIONS || '10' }}
   TZ: ${{ vars.TZ || 'Asia/Dhaka' }}
   PRIMARY_REGISTRY: 'ghcr'
   DOCKERHUB_REPO: ${{ vars.DOCKERHUB_REPO || 'mekayelanik/gitnexus-mcp' }}

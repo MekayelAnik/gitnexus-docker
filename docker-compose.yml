@@ -1,0 +1,50 @@
+services:
+  gitnexus-mcp:
+    image: mekayelanik/gitnexus-mcp:latest
+    container_name: gitnexus-mcp
+    environment:
+      - PORT=8010
+      - INTERNAL_PORT=38011
+      - PUID=1000
+      - PGID=1000
+      - TZ=UTC
+      - NODE_ENV=production
+      - PROTOCOL=SHTTP
+      - ENABLE_HTTPS=false
+      - HTTP_VERSION_MODE=auto
+      - DATA_DIR=/data
+      # Analysis features
+      - ANALYZE_SKILLS=true
+      - ANALYZE_EMBEDDINGS=true
+      # - ANALYZE_FORCE=false
+      # - ANALYZE_SKIP_GIT=false
+      # - ANALYZE_VERBOSE=false
+      # Web UI
+      # - ENABLE_WEB_UI=true
+      # Wiki generation
+      # - WIKI_ENABLED=false
+      # Optional: require Bearer token auth at HAProxy layer
+      # - API_KEY=replace-with-strong-secret
+      # Optional: CORS origins (comma-separated, or * for all)
+      # - CORS=*
+    ports:
+      - "8010:8010"
+    volumes:
+      # Mount your repository directories for code analysis
+      # Each subdirectory becomes an indexable repository
+      - /path/to/your/repos:/data:ro
+      # Example: mount individual repos
+      # - /home/user/my-project:/data/my-project:ro
+      # - /home/user/another-repo:/data/another-repo:ro
+      # Persistent storage for GitNexus registry (repo metadata)
+      - gitnexus-registry:/home/node/.gitnexus
+      # Persistent cache for HuggingFace models, ONNX runtime, etc.
+      # Prevents re-downloading embedding models on every container restart
+      - gitnexus-cache:/home/node/.cache
+    restart: unless-stopped
+
+volumes:
+  gitnexus-registry:
+    driver: local
+  gitnexus-cache:
+    driver: local

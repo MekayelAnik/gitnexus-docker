@@ -106,6 +106,7 @@ services:
     volumes:
       - /path/to/your/repos:/data:rw
       - gitnexus-registry:/home/node/.gitnexus   # Persist index registry
+      - gitnexus-cache:/home/node/.cache          # Persist embedding models
     environment:
       - PORT=8010
       - PUID=1000
@@ -131,6 +132,8 @@ services:
 volumes:
   gitnexus-registry:
     driver: local
+  gitnexus-cache:
+    driver: local
 ```
 
 **Deploy:**
@@ -142,13 +145,14 @@ docker compose logs -f gitnexus-mcp
 ### Docker CLI
 
 ```bash
-docker volume create gitnexus-registry
+docker volume create gitnexus-registry && docker volume create gitnexus-cache
 docker run -d \
   --name=gitnexus-mcp \
   --restart=unless-stopped \
   -p 8010:8010 \
   -v /path/to/your/repos:/data:rw \
   -v gitnexus-registry:/home/node/.gitnexus \
+  -v gitnexus-cache:/home/node/.cache \
   -e PORT=8010 \
   -e PUID=1000 \
   -e PGID=1000 \
@@ -174,6 +178,7 @@ services:
     volumes:
       - /path/to/your/repos:/data:rw
       - gitnexus-registry:/home/node/.gitnexus   # Persist index registry
+      - gitnexus-cache:/home/node/.cache          # Persist embedding models
       - /path/to/certs:/etc/haproxy/certs:ro   # TLS certificates
     environment:
       # Core
@@ -218,12 +223,14 @@ services:
 volumes:
   gitnexus-registry:
     driver: local
+  gitnexus-cache:
+    driver: local
 ```
 
 ### Full-Featured Docker CLI (GPU + Auth)
 
 ```bash
-docker volume create gitnexus-registry
+docker volume create gitnexus-registry && docker volume create gitnexus-cache
 docker run -d \
   --name=gitnexus-mcp \
   --restart=unless-stopped \
@@ -231,6 +238,7 @@ docker run -d \
   -p 8010:8010 \
   -v /path/to/your/repos:/data:rw \
   -v gitnexus-registry:/home/node/.gitnexus \
+  -v gitnexus-cache:/home/node/.cache \
   -v /path/to/certs:/etc/haproxy/certs:ro \
   -e PORT=8010 \
   -e PUID=1000 \
@@ -266,6 +274,7 @@ services:
     volumes:
       - /path/to/your/repos:/data:rw
       - gitnexus-registry:/home/node/.gitnexus   # Persist index registry
+      - gitnexus-cache:/home/node/.cache          # Persist embedding models
     environment:
       - PORT=8010
       - PROTOCOL=SHTTP
@@ -296,6 +305,8 @@ services:
 volumes:
   gitnexus-registry:
     driver: local
+  gitnexus-cache:
+    driver: local
   ollama-data:
 ```
 
@@ -321,12 +332,11 @@ With `ENABLE_HTTPS=true`, use TLS endpoints:
 | **MCP (SSE)** | `https://host-ip:8010/sse` |
 | **MCP (WS)** | `wss://host-ip:8010/message` |
 
-> **Single-Port Architecture:** HAProxy routes all traffic on port 8010: `/mcp`, `/healthz` to Supergateway; `/api/*` to GitNexus API; `/*` to web UI. Web UI auto-discovers API at same origin. Set `ENABLE_WEB_UI=false` for MCP-only mode.
+> **Single-Port Architecture:** HAProxy routes `/mcp`, `/healthz` to Supergateway; `/api/*` to GitNexus API; `/*` to web UI. Set `ENABLE_WEB_UI=false` for MCP-only mode.
 
-> **Smart Healthcheck:** During analysis/wiki phases, healthcheck reports healthy to avoid false unhealthy status. After startup, it checks the real `/healthz` endpoint.
+> **Smart Healthcheck:** Reports healthy during analysis/wiki phases to avoid false unhealthy status.
 
-> **Security Warning:** Defaults to HTTP. Use `ENABLE_HTTPS=true` with your own certs for production. See [CERTIFICATE_SETUP_GUIDE.md](CERTIFICATE_SETUP_GUIDE.md).
-> **ARM Devices:** Allow 60-120s for initialization.
+> **Security Warning:** Defaults to HTTP. Use `ENABLE_HTTPS=true` with own certs for production. See [CERTIFICATE_SETUP_GUIDE.md](CERTIFICATE_SETUP_GUIDE.md). ARM devices: allow 60-120s for init.
 
 ---
 
@@ -337,10 +347,11 @@ With `ENABLE_HTTPS=true`, use TLS endpoints:
 | Mount | Container Path | Purpose |
 |:------|:---------------|:--------|
 | Repository data | `/data` | Root directory containing repos to analyze (required) |
-| Index registry | `/home/node/.gitnexus` | Repo-to-index registry. **Persist** with a named volume to avoid re-registration |
+| Index registry | `/home/node/.gitnexus` | Repo-to-index registry. **Persist** to avoid re-registration |
+| Embedding cache | `/home/node/.cache` | HuggingFace models, ONNX cache. **Persist** to avoid re-download |
 | TLS certificates | `/etc/haproxy/certs` | TLS cert/key files (only with `ENABLE_HTTPS=true`) |
 
-> **Index storage:** Indexes live in `.gitnexus/` within each repo (persisted via host mount). The registry at `/home/node/.gitnexus` stores pointers -- without it, repos must be re-discovered on startup.
+> Indexes live in `.gitnexus/` within each repo. The registry at `/home/node/.gitnexus` stores pointers.
 
 ### Complete Environment Variables Reference
 
@@ -388,9 +399,33 @@ With `ENABLE_HTTPS=true`, use TLS endpoints:
 | `DATA_DIR` | `/data` | Any valid path | Root directory containing repos |
 | `ANALYZE_FORCE` | `false` | `true`, `false` | Force full re-index (once per lifecycle) |
 | `ANALYZE_SKILLS` | `false` | `true`, `false` | Generate skill files from communities |
-| `ANALYZE_EMBEDDINGS` | `false` | `true`, `false` | Embeddings for semantic search (slower) |
+| `ANALYZE_EMBEDDINGS` | `false` | `true`, `false` | Enable embeddings for semantic search |
 | `ANALYZE_SKIP_GIT` | `false` | `true`, `false` | Index folders without `.git` |
 | `ANALYZE_VERBOSE` | `false` | `true`, `false` | Log skipped files |
+
+#### Embedding Override (HTTP Backend)
+
+| Variable | Default | Description |
+|:---------|:-------:|:------------|
+| `GITNEXUS_EMBEDDING_URL` | *(empty)* | OpenAI-compatible `/v1/embeddings` endpoint URL |
+| `GITNEXUS_EMBEDDING_MODEL` | *(empty)* | Model name for API requests |
+| `GITNEXUS_EMBEDDING_API_KEY` | `unused` | Bearer token for the endpoint |
+| `GITNEXUS_EMBEDDING_DIMS` | `384` | Embedding dimensions (must match model) |
+
+> **Local default:** `Snowflake/snowflake-arctic-embed-xs` (22M params, 384 dims, ~90MB). Auto-downloads when `ANALYZE_EMBEDDINGS=true`. Set URL + MODEL to use a remote API instead:
+
+```yaml
+# OpenAI
+- GITNEXUS_EMBEDDING_URL=https://api.openai.com/v1
+- GITNEXUS_EMBEDDING_MODEL=text-embedding-3-small
+- GITNEXUS_EMBEDDING_API_KEY=sk-your-key
+- GITNEXUS_EMBEDDING_DIMS=1536
+
+# Self-hosted (OpenAI-compatible endpoint)
+- GITNEXUS_EMBEDDING_URL=http://your-server:port/v1
+- GITNEXUS_EMBEDDING_MODEL=Snowflake/snowflake-arctic-embed-xs
+- GITNEXUS_EMBEDDING_DIMS=384
+```
 
 #### Cleanup
 
@@ -409,50 +444,37 @@ With `ENABLE_HTTPS=true`, use TLS endpoints:
 | `WIKI_FORCE` | `false` | `true`, `false` | Force wiki regeneration |
 | `OPENAI_API_KEY` | *(empty)* | Any string | API key for OpenAI or compatible provider |
 
-> **Boolean values:** `true`, `1`, `yes`, `on` are all accepted as truthy. Everything else is falsy.
-
-> **Once per lifecycle:** `CLEAN_ON_START`, `CLEAN_ALL_FORCE`, `ANALYZE_FORCE`, and `WIKI_FORCE` run once after creation, skipped on restarts. Recreate to re-trigger (`docker compose down && up -d`).
+> **Booleans:** `true`, `1`, `yes`, `on` are truthy. **Once per lifecycle:** `CLEAN_ON_START`, `CLEAN_ALL_FORCE`, `ANALYZE_FORCE`, `WIKI_FORCE` run once after creation; recreate to re-trigger.
 
 #### One-Shot Operations (via `docker exec`)
 
 ```bash
-docker exec gitnexus-mcp gitnexus clean                # Clean current repo index
-docker exec gitnexus-mcp gitnexus clean --all --force   # Delete ALL indexes
-docker exec gitnexus-mcp gitnexus analyze --force       # Force full re-index
-docker exec gitnexus-mcp gitnexus wiki --force          # Force wiki regeneration
+docker exec gitnexus-mcp gitnexus clean              # Clean current repo index
+docker exec gitnexus-mcp gitnexus clean --all --force # Delete ALL indexes
+docker exec gitnexus-mcp gitnexus analyze --force     # Force full re-index
+docker exec gitnexus-mcp gitnexus wiki --force        # Force wiki regeneration
 ```
 
 ### HTTPS Notes
 
-- Provide your own TLS cert and key (no auto-generation).
-- `TLS_CERT_PATH` + `TLS_KEY_PATH` are merged into `TLS_PEM_PATH` automatically.
+- Provide own TLS cert/key. Merged into `TLS_PEM_PATH` automatically.
 - `HTTP_VERSION_MODE=h3`/`auto` enables HTTP/3 only when HAProxy includes QUIC.
-- See [CERTIFICATE_SETUP_GUIDE.md](CERTIFICATE_SETUP_GUIDE.md) for details.
 
-### API Key Authentication Notes
+### API Key Authentication
 
 - Set `API_KEY` to enforce auth at the proxy level.
-- Header: `Authorization: Bearer <API_KEY>` (case-insensitive).
-- Keys may contain any printable chars including regex special chars.
-- `/healthz` and CORS preflight (OPTIONS) bypass auth.
+- Header: `Authorization: Bearer <API_KEY>`.
+- `/healthz` and CORS preflight bypass auth.
 
 ### Rate Limiting and IP Access Control
 
-- **Rate limiting:** `RATE_LIMIT=100` allows 100 req per `RATE_LIMIT_PERIOD` per IP. Excess returns 429 with `Retry-After`.
-- **Connection limiting:** `MAX_CONNECTIONS_PER_IP=50` caps concurrent connections per IP. Excess returns 429.
-- **IP blocklist:** `IP_BLOCKLIST=192.0.2.0/24,198.51.100.5` blocks listed IPs/CIDRs (403).
-- **IP allowlist:** `IP_ALLOWLIST=10.0.0.0/8,192.168.1.0/24` allows only listed IPs (others get 403). Localhost always allowed.
-- All disabled by default. Blocklist checked before allowlist.
+- **Rate limiting:** `RATE_LIMIT=100` allows 100 req/period/IP. Excess returns 429.
+- **Connection limiting:** `MAX_CONNECTIONS_PER_IP=50` caps concurrent connections/IP.
+- **IP blocklist/allowlist:** Block or allow specific IPs/CIDRs. Blocklist checked first. All disabled by default.
 
 ### Security Headers
 
-HAProxy automatically adds these headers to all responses:
-
-| Header | Value | Condition |
-|:-------|:------|:----------|
-| `X-Content-Type-Options` | `nosniff` | Always |
-| `X-Frame-Options` | `DENY` | Always |
-| `Strict-Transport-Security` | `max-age=31536000; includeSubDomains` | HTTPS only |
+HAProxy adds `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY` (always), and `Strict-Transport-Security` (HTTPS only).
 
 ---
 
@@ -463,25 +485,19 @@ HAProxy automatically adds these headers to all responses:
 The container analyzes all subdirectories in `DATA_DIR` on startup. Mount repos as subdirectories.
 
 ```
-/data/                       # DATA_DIR root
-├── my-project-1/           # Repository 1 (auto-analyzed)
-│   ├── .git/
-│   └── src/
-├── my-project-2/           # Repository 2 (auto-analyzed)
-│   ├── .git/
-│   └── lib/
-└── another-repo/           # Repository 3 (auto-analyzed)
-    ├── .git/
-    └── ...
+/data/
+├── my-project-1/    # auto-analyzed
+├── my-project-2/    # auto-analyzed
+└── another-repo/    # auto-analyzed
 ```
 
-> **Tip:** Set `ANALYZE_SKIP_GIT=true` to index folders without `.git` (e.g., extracted archives).
+> Set `ANALYZE_SKIP_GIT=true` to index folders without `.git`.
 
 ---
 
 ## Wiki Generation
 
-GitNexus generates AI-powered wiki docs for repos. Supports cloud (OpenAI, Anthropic) and local (Ollama, vLLM, llama.cpp) providers via OpenAI-compatible API.
+Supports cloud and local LLM providers via OpenAI-compatible API.
 
 | Provider | `WIKI_BASE_URL` | `WIKI_MODEL` | `OPENAI_API_KEY` |
 |:---------|:---------------|:-------------|:-----------------|
@@ -493,7 +509,7 @@ GitNexus generates AI-powered wiki docs for repos. Supports cloud (OpenAI, Anthr
 
 ## GPU Support
 
-Uses onnxruntime-node for embeddings. **NVIDIA GPUs only** (AMD/Intel unsupported). Install [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html), verify with `docker run --rm --gpus all nvidia/cuda:12.0-base nvidia-smi`. Use `deploy.resources.reservations.devices` in Compose or `--gpus all` in CLI. Falls back to CPU automatically.
+Uses onnxruntime-node for embeddings. **NVIDIA GPUs only.** Install [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html), use `deploy.resources.reservations.devices` in Compose or `--gpus all` in CLI. Falls back to CPU automatically.
 
 ---
 
@@ -523,7 +539,7 @@ claude mcp add-json gitnexus '{"type":"http","url":"http://host-ip:8010/mcp"}'
 
 ### VS Code / Codex / Cursor / Windsurf
 
-Same JSON format across config files: VS Code (`.vscode/settings.json`, `mcp.servers`), Codex (`~/.codex/config.json`), Cursor (`~/.cursor/mcp.json`), Windsurf (`.codeium/mcp_settings.json`) -- key `mcpServers`.
+Same JSON format: VS Code (`mcp.servers`), Codex, Cursor (`mcpServers`), Windsurf (`mcpServers`).
 
 ```json
 {

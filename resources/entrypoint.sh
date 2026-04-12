@@ -951,6 +951,13 @@ main() {
     mkdir -p /home/node/.gitnexus
     chown -R "${PUID}:${PGID}" /home/node/.gitnexus 2>/dev/null || true
 
+    # Ensure cache directory exists for HuggingFace transformers, ONNX, etc.
+    # Without this, libraries try to write cache into /usr/local/lib/node_modules/
+    # which is read-only for the node user, causing EACCES errors during analysis.
+    mkdir -p /home/node/.cache
+    chown "${PUID}:${PGID}" /home/node/.cache 2>/dev/null || true
+    export XDG_CACHE_HOME="/home/node/.cache"
+
     if is_true "$ENABLE_HTTPS"; then
         prepare_tls_pem "$TLS_CERT_PATH" "$TLS_KEY_PATH" "$TLS_PEM_PATH"
     fi

@@ -961,6 +961,10 @@ main() {
     mkdir -p /home/node/.cache
     chown "${PUID}:${PGID}" /home/node/.cache 2>/dev/null || true
     export XDG_CACHE_HOME="/home/node/.cache"
+    export HF_HOME="/home/node/.cache/huggingface"
+    export TRANSFORMERS_CACHE="/home/node/.cache/huggingface/transformers"
+    mkdir -p "$HF_HOME" "$TRANSFORMERS_CACHE" 2>/dev/null || true
+    chown -R "${PUID}:${PGID}" "$HF_HOME" 2>/dev/null || true
 
     if is_true "$ENABLE_HTTPS"; then
         prepare_tls_pem "$TLS_CERT_PATH" "$TLS_KEY_PATH" "$TLS_PEM_PATH"

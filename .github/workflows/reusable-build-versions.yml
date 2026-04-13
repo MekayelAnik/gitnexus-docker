@@ -107,11 +107,20 @@ jobs:
 
           # Pre-filter: skip versions already in GHCR (unless force_build)
           if [[ "$FORCE_BUILD" != "true" ]]; then
+            # Install crane for fast HEAD-only digest checks (no full manifest pull)
+            CRANE_VER="v0.21.5"
+            curl -fsSL "https://github.com/google/go-containerregistry/releases/download/${CRANE_VER}/go-containerregistry_Linux_x86_64.tar.gz" \
+              | tar xzf - -C /usr/local/bin crane 2>/dev/null \
+              || echo "::warning::crane install failed, falling back to docker manifest inspect"
+
             FILTERED="[]"
             TOTAL=$(echo "$VERSIONS_JSON" | jq length)
             for row in $(echo "$VERSIONS_JSON" | jq -c '.[]'); do
               VERSION=$(echo "$row" | jq -r '.version')
-              if docker manifest inspect "${GHCR_REPO}:${VERSION}" >/dev/null 2>&1; then
+              # Anonymous HEAD check: crane digest (fast) → docker manifest inspect (fallback)
+              if command -v crane >/dev/null 2>&1 && DOCKER_CONFIG=/dev/null crane digest "${GHCR_REPO}:${VERSION}" >/dev/null 2>&1; then
+                echo "Skipping ${VERSION} — already in GHCR"
+              elif docker manifest inspect "${GHCR_REPO}:${VERSION}" >/dev/null 2>&1; then
                 echo "Skipping ${VERSION} — already in GHCR"
               else
                 FILTERED=$(echo "$FILTERED" | jq -c --argjson item "$row" '. + [$item]')

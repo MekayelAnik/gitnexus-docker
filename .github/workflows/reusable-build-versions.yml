@@ -95,10 +95,6 @@ jobs:
       versions: ${{ steps.generate.outputs.versions }}
       has_builds: ${{ steps.generate.outputs.has_builds }}
     steps:
-      - name: Setup crane
-        if: inputs.force_build != 'true'
-        uses: imjasonh/setup-crane@v0.4
-
       - name: Generate version × platform matrix
         id: generate
         shell: bash
@@ -112,6 +108,8 @@ jobs:
           # Pre-filter: skip versions already in GHCR (unless force_build)
           # Parallel crane digest checks (~1-2s for 40+ versions vs ~9s serial)
           if [[ "$FORCE_BUILD" != "true" ]]; then
+            curl -fsSL "https://github.com/google/go-containerregistry/releases/download/v0.21.5/go-containerregistry_Linux_x86_64.tar.gz" \
+              | tar xzf - -C /usr/local/bin crane 2>/dev/null
             TOTAL=$(echo "$VERSIONS_JSON" | jq length)
             EXISTING_FILE=$(mktemp)
 

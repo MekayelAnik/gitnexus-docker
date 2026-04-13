@@ -110,21 +110,27 @@ jobs:
           FORCE_BUILD='${{ inputs.force_build }}'
 
           # Pre-filter: skip versions already in GHCR (unless force_build)
+          # Parallel crane digest checks (~1-2s for 40+ versions vs ~9s serial)
           if [[ "$FORCE_BUILD" != "true" ]]; then
-            FILTERED="[]"
             TOTAL=$(echo "$VERSIONS_JSON" | jq length)
-            for row in $(echo "$VERSIONS_JSON" | jq -c '.[]'); do
-              VERSION=$(echo "$row" | jq -r '.version')
-              # Anonymous HEAD-only check (crane digest = single HEAD request)
-              if DOCKER_CONFIG=/dev/null crane digest "${GHCR_REPO}:${VERSION}" >/dev/null 2>&1; then
-                echo "Skipping ${VERSION} — already in GHCR"
-              else
-                FILTERED=$(echo "$FILTERED" | jq -c --argjson item "$row" '. + [$item]')
-              fi
-            done
-            REMAINING=$(echo "$FILTERED" | jq length)
+            EXISTING_FILE=$(mktemp)
+
+            # Check all versions in parallel (up to 10 concurrent)
+            echo "$VERSIONS_JSON" | jq -r '.[].version' | \
+              xargs -P10 -I{} sh -c \
+                'DOCKER_CONFIG=/dev/null crane digest "'"${GHCR_REPO}"':{}" >/dev/null 2>&1 && echo "{}"' \
+              > "$EXISTING_FILE" || true
+
+            # Filter out versions that exist
+            if [[ -s "$EXISTING_FILE" ]]; then
+              SKIP_PATTERN=$(paste -sd'|' "$EXISTING_FILE")
+              while IFS= read -r v; do echo "Skipping ${v} — already in GHCR"; done < "$EXISTING_FILE"
+              VERSIONS_JSON=$(echo "$VERSIONS_JSON" | jq -c --arg pat "$SKIP_PATTERN" '[.[] | select(.version | test("^(" + $pat + ")$") | not)]')
+            fi
+            rm -f "$EXISTING_FILE"
+
+            REMAINING=$(echo "$VERSIONS_JSON" | jq length)
             echo "Pre-filter: ${REMAINING}/${TOTAL} versions need building"
-            VERSIONS_JSON="$FILTERED"
           fi
 
           # Early exit if no versions to build

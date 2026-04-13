@@ -52,8 +52,9 @@ FROM $BASE_IMAGE AS build
 LABEL org.opencontainers.image.authors="MOHAMMAD MEKAYEL ANIK <mekayel.anik@gmail.com>"
 LABEL org.opencontainers.image.source="https://github.com/mekayelanik/GitNexus-docker"
 
-# Generate build timestamp
-RUN echo "Built: \$(date -u '+%Y-%m-%d %H:%M:%S UTC') | GitNexus v${GITNEXUS_VERSION}" > /tmp/build-timestamp.txt
+# Generate build timestamp (ARG busts cache when version changes)
+ARG GITNEXUS_VERSION
+RUN echo "Built: \$(date -u '+%Y-%m-%d %H:%M:%S UTC') | GitNexus v\${GITNEXUS_VERSION}" > /tmp/build-timestamp.txt
 
 # Copy the entrypoint script into the container and make it executable
 COPY ./resources/ /usr/local/bin/
@@ -95,6 +96,11 @@ RUN apt-get update && \
     apt-get purge -y python3 make g++ binutils && \
     apt-get autoremove -y && \
     rm -rf /var/lib/apt/lists/* /var/cache/apt/* /usr/share/doc /usr/share/man /usr/share/info /usr/share/locale /usr/share/lintian /var/log/*.log
+
+# Make HuggingFace transformers cache writable by node user
+# The JS @huggingface/transformers library writes to .cache inside its own package dir
+RUN mkdir -p /usr/local/lib/node_modules/gitnexus/node_modules/@huggingface/transformers/.cache && \\
+    chown -R node:node /usr/local/lib/node_modules/gitnexus/node_modules/@huggingface/transformers/.cache
 
 # Use an ARG for the default port
 ARG PORT=8010

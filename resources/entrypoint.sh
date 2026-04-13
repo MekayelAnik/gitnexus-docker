@@ -699,9 +699,12 @@ run_gitnexus_analyze() {
 
     # Run analyze as the same user that will run serve/mcp (node),
     # so the repo registry (~/.gitnexus/) is shared between all processes.
-    # Suppress MaxListenersExceededWarning — gitnexus analyze adds many drain
-    # listeners on stdout during concurrent file processing (harmless but noisy)
-    export NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--no-warnings"
+    # Increase max event listeners — gitnexus analyze adds many drain listeners
+    # on stdout during concurrent file processing, exceeding the default limit of 10.
+    # This is not a leak; it's expected concurrency. Set via Node.js preload script.
+    local max_listeners_script="/tmp/max-listeners.cjs"
+    echo "require('events').EventEmitter.defaultMaxListeners = 64;" > "$max_listeners_script"
+    export NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--require $max_listeners_script"
     local run_cmd=()
     if [ "$(id -u)" -eq 0 ]; then
         run_cmd=(gosu node)

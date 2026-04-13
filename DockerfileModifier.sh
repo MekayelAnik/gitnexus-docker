@@ -82,11 +82,16 @@ COPY --from=frontend-builder /build/gitnexus-web/dist /usr/local/share/gitnexus-
 RUN mkdir -p /data /state && chown node:node /data /state
 
 # Install build tools, compile native deps, optimize, then remove build tools in single layer
+# onnxruntime-node postinstall downloads CUDA EP binaries (~400MB) for GPU inference.
+# At runtime, GPU is auto-detected: CUDA EP if --gpus all, otherwise CPU fallback.
+# ONNXRUNTIME_NODE_INSTALL forces the postinstall to download CUDA binaries on linux/x64.
+# On linux/arm64 the postinstall has no CUDA manifest and exits cleanly (CPU-only).
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     python3 make g++ binutils && \
     echo "Installing ${GITNEXUS_MCP_PKG}..." && \
-    npm install -g ${GITNEXUS_MCP_PKG} --omit=dev --no-audit --no-fund --loglevel error && \
+    ONNXRUNTIME_NODE_INSTALL=true \
+    npm install -g ${GITNEXUS_MCP_PKG} --omit=dev --no-audit --no-fund --loglevel warn && \
     echo "Installing Supergateway..." && \
     npm install -g ${SUPERGATEWAY_PKG} --omit=dev --no-audit --no-fund --loglevel error && \
     echo "Installing serve (static file server)..." && \
@@ -96,11 +101,6 @@ RUN apt-get update && \
     apt-get purge -y python3 make g++ binutils && \
     apt-get autoremove -y && \
     rm -rf /var/lib/apt/lists/* /var/cache/apt/* /usr/share/doc /usr/share/man /usr/share/info /usr/share/locale /usr/share/lintian /var/log/*.log
-
-# Make HuggingFace transformers cache writable by node user
-# The JS @huggingface/transformers library writes to .cache inside its own package dir
-RUN mkdir -p /usr/local/lib/node_modules/gitnexus/node_modules/@huggingface/transformers/.cache && \\
-    chown -R node:node /usr/local/lib/node_modules/gitnexus/node_modules/@huggingface/transformers/.cache
 
 # Use an ARG for the default port
 ARG PORT=8010

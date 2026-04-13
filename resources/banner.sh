@@ -58,21 +58,49 @@ print_maintainer_info() {
 print_system_info() {
     print_separator
 
-    local disp_port="$PORT"
+    local disp_port="${PORT:-8010}"
+    local proto="${PROTOCOL:-SHTTP}"
 
     local display_ip=$(ip route | awk '/default/ {print $3}')
 
     local port_display=":$disp_port"
     [[ "$disp_port" == '80' ]] && port_display=""
 
+    # Determine MCP endpoint path from protocol
+    local mcp_path="/mcp"
+    case "${proto^^}" in
+        SSE)              mcp_path="/sse" ;;
+        WS|WEBSOCKET)     mcp_path="/message" ;;
+    esac
+
+    # Build the MCP URL
+    local scheme="http"
+    [[ "${ENABLE_HTTPS:-false}" == "true" ]] && scheme="https"
+    local mcp_url="${scheme}://${display_ip}${port_display}${mcp_path}"
+
 printf "${GREEN} >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> Starting GitNexus MCP Server! <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< \n${NC}"
 printf "${ORANGE} ==================================${NC}\n"
-printf "${ORANGE} PUID: %s${NC}\n" "$PUID"
-printf "${ORANGE} PGID: %s${NC}\n" "$PGID"
+printf "${ORANGE} PUID: %s${NC}\n" "${PUID:-1000}"
+printf "${ORANGE} PGID: %s${NC}\n" "${PGID:-1000}"
 printf "${ORANGE} MCP IP Address: %s\n${NC}" "$display_ip"
-printf "${ORANGE} MCP Server PORT: ${GREEN}%s${NC} (${SEA_GREEN}%s${NC})\n" "${disp_port:-8010}" "${PROTOCOL:-SHTTP}"
-printf "${ORANGE} Web UI PORT:     ${GREEN}%s\n${NC}" "${WEB_UI_PORT:-4747}"
-printf "${ORANGE} Data Directory:  ${GREEN}%s\n${NC}\n" "${DATA_DIR:-/data}"
+printf "${ORANGE} MCP Server PORT: ${GREEN}%s${NC} (${SEA_GREEN}%s${NC})\n" "${disp_port:-8010}" "${proto}"
+printf "${ORANGE} MCP URL:         ${GREEN}%s${NC}\n" "$mcp_url"
+printf "${ORANGE} Web UI:          ${GREEN}%s://%s%s/${NC}\n" "$scheme" "$display_ip" "$port_display"
+printf "${ORANGE} Data Directory:  ${GREEN}%s${NC}\n" "${DATA_DIR:-/data}"
+    # Fast check: glob for CUDA EP binary (avoids recursive find)
+    local cuda_so=""
+    for f in /usr/local/lib/node_modules/*/node_modules/onnxruntime-node/bin/napi-v*/linux/*/libonnxruntime_providers_cuda.so \
+             /usr/local/lib/node_modules/onnxruntime-node/bin/napi-v*/linux/*/libonnxruntime_providers_cuda.so; do
+        [[ -f "$f" ]] && cuda_so="$f" && break
+    done 2>/dev/null
+    if [[ -n "$cuda_so" ]]; then
+printf "${ORANGE} Compute:         ${GREEN}CPU + CUDA (GPU auto-detected at runtime)${NC}\n"
+    elif [[ "$(uname -m)" == "aarch64" ]]; then
+printf "${ORANGE} Compute:         ${GREEN}CPU (CUDA not available on ARM64)${NC}\n"
+    else
+printf "${ORANGE} Compute:         ${GREEN}CPU${NC}\n"
+    fi
+printf "\n"
 printf "${ORANGE} ==================================${NC}\n"
 printf "${ERROR_RED} Note: You may need to change the IP address to your host machine IP\n${NC}"
 [[ -n "$BUILD_TIMESTAMP" ]] && printf "${ORANGE} %s${NC}\n" "$BUILD_TIMESTAMP"

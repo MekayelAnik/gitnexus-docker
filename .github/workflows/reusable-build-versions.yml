@@ -361,6 +361,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          source "$GITHUB_WORKSPACE/.github/scripts/lib-retry.sh"
 
           GHCR_REPO="${{ steps.sanitize.outputs.ghcr_repo }}"
           DH_REPO="${{ steps.sanitize.outputs.dockerhub_repo }}"
@@ -390,12 +391,13 @@ jobs:
           echo "  DH:   $DH_REPO:$VERSION, $DH_REPO:$IMAGE_TAG"
 
           # Create manifest list with all tags (GHCR + Docker Hub)
-          docker buildx imagetools create \
-            -t "${GHCR_REPO}:${VERSION}" \
-            -t "${GHCR_REPO}:${IMAGE_TAG}" \
-            -t "${DH_REPO}:${VERSION}" \
-            -t "${DH_REPO}:${IMAGE_TAG}" \
-            $SOURCES
+          run_with_retry "manifest merge ${VERSION}" \
+            docker buildx imagetools create \
+              -t "${GHCR_REPO}:${VERSION}" \
+              -t "${GHCR_REPO}:${IMAGE_TAG}" \
+              -t "${DH_REPO}:${VERSION}" \
+              -t "${DH_REPO}:${IMAGE_TAG}" \
+              $SOURCES
 
           echo "Multi-arch manifest created successfully"
 

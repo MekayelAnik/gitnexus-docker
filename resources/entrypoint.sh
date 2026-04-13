@@ -709,6 +709,29 @@ run_gitnexus_analyze() {
         if [[ -d "$repo_dir" ]]; then
             found_repos=1
             echo "Analyzing repository: ${repo_dir}"
+            # Pre-flight: verify the effective user can read the repo contents.
+            # When root, run_cmd=(gosu node) so we test as the node user.
+            # When already node, run_cmd=() so we test directly.
+            local test_cmd=("${run_cmd[@]}")
+            local can_read=false
+            if [[ ${#test_cmd[@]} -gt 0 ]]; then
+                # Running as root — test as node user via gosu
+                if "${test_cmd[@]}" test -r "${repo_dir}.git/HEAD" 2>/dev/null || \
+                   "${test_cmd[@]}" test -r "${repo_dir}.gitignore" 2>/dev/null; then
+                    can_read=true
+                fi
+            else
+                # Running as node user directly
+                if [[ -r "${repo_dir}.git/HEAD" ]] || [[ -r "${repo_dir}.gitignore" ]]; then
+                    can_read=true
+                fi
+            fi
+            if [[ "$can_read" == "false" ]]; then
+                echo "Warning: node user (PUID=${PUID}) cannot read files in ${repo_dir}"
+                echo "  Hint: set PUID/PGID to match the file owner, or fix volume permissions"
+                echo "  Skipping analysis for this repository"
+                continue
+            fi
             (cd "$repo_dir" && "${run_cmd[@]}" gitnexus analyze "${analyze_args[@]}" 2>&1) || \
                 echo "Warning: gitnexus analyze failed for ${repo_dir}"
         fi
@@ -929,16 +952,27 @@ main() {
     fi
 
     # Export variables for banner.sh (runs as child process)
-    export PORT PUID PGID WEB_UI_PORT PROTOCOL DATA_DIR
+    export PORT PUID PGID WEB_UI_PORT PROTOCOL DATA_DIR ENABLE_HTTPS NODE_ENV
     /usr/local/bin/banner.sh
 
-    # Check for NVIDIA GPU availability
+    # Check for NVIDIA GPU availability and CUDA EP support
+    local compute_mode="cpu"
+    local cuda_so
+    cuda_so="$(find /usr/local/lib/node_modules -name 'libonnxruntime_providers_cuda.so' -type f 2>/dev/null | head -n1)"
+
     if command -v nvidia-smi >/dev/null 2>&1; then
         echo "NVIDIA GPU detected:"
         nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader 2>/dev/null || echo "  (nvidia-smi available but query failed)"
+        if [[ -n "$cuda_so" ]]; then
+            compute_mode="cuda"
+            echo "CUDA Execution Provider: enabled ($(du -sh "$cuda_so" | cut -f1))"
+        else
+            echo "CUDA Execution Provider: binaries not found — falling back to CPU"
+        fi
     else
         echo "No NVIDIA GPU detected (running on CPU)"
     fi
+    export GITNEXUS_COMPUTE_MODE="$compute_mode"
 
     # Ensure data directory exists and has correct ownership
     mkdir -p "$DATA_DIR"
@@ -955,16 +989,45 @@ main() {
     mkdir -p /home/node/.gitnexus
     chown -R "${PUID}:${PGID}" /home/node/.gitnexus 2>/dev/null || true
 
-    # Ensure cache directory exists for HuggingFace transformers, ONNX, etc.
+    # Ensure cache directories exist for the node user.
     # Without this, libraries try to write cache into /usr/local/lib/node_modules/
     # which is read-only for the node user, causing EACCES errors during analysis.
     mkdir -p /home/node/.cache
     chown "${PUID}:${PGID}" /home/node/.cache 2>/dev/null || true
     export XDG_CACHE_HOME="/home/node/.cache"
+
+    # npm cache — npx/supergateway runs as node, must not fall back to /root/.npm
+    mkdir -p /home/node/.npm
+    chown -R "${PUID}:${PGID}" /home/node/.npm 2>/dev/null || true
+    export npm_config_cache="/home/node/.npm"
+
+    # HuggingFace transformers (Python env vars + JS library)
     export HF_HOME="/home/node/.cache/huggingface"
     export TRANSFORMERS_CACHE="/home/node/.cache/huggingface/transformers"
     mkdir -p "$HF_HOME" "$TRANSFORMERS_CACHE" 2>/dev/null || true
     chown -R "${PUID}:${PGID}" "$HF_HOME" 2>/dev/null || true
+
+    # The @huggingface/transformers JS library writes its own .cache/ inside the
+    # module directory, ignoring HF_HOME/TRANSFORMERS_CACHE env vars.
+    # Redirect it via symlink to the writable cache path.
+    local hf_module_cache
+    hf_module_cache="$(find /usr/local/lib/node_modules -path '*/\@huggingface/transformers' -type d 2>/dev/null | head -n1)"
+    if [[ -n "$hf_module_cache" ]]; then
+        local target_cache="/home/node/.cache/huggingface/transformers-js"
+        mkdir -p "$target_cache" 2>/dev/null || true
+        chown "${PUID}:${PGID}" "$target_cache" 2>/dev/null || true
+        if [[ -d "${hf_module_cache}/.cache" && ! -L "${hf_module_cache}/.cache" ]]; then
+            rm -rf "${hf_module_cache}/.cache"
+        fi
+        if [[ ! -e "${hf_module_cache}/.cache" ]]; then
+            ln -sf "$target_cache" "${hf_module_cache}/.cache"
+        fi
+    fi
+
+    # ONNX Runtime cache — used during model inference
+    export ONNX_HOME="/home/node/.cache/onnx"
+    mkdir -p "$ONNX_HOME" 2>/dev/null || true
+    chown -R "${PUID}:${PGID}" "$ONNX_HOME" 2>/dev/null || true
 
     if is_true "$ENABLE_HTTPS"; then
         prepare_tls_pem "$TLS_CERT_PATH" "$TLS_KEY_PATH" "$TLS_PEM_PATH"

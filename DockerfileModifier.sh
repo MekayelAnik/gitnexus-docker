@@ -93,7 +93,15 @@ RUN apt-get update && \
     ONNXRUNTIME_NODE_INSTALL=true \
     npm install -g ${GITNEXUS_MCP_PKG} --omit=dev --no-audit --no-fund --loglevel warn && \
     CUDA_SO=\$(find /usr/local/lib/node_modules -name 'libonnxruntime_providers_cuda.so' -type f 2>/dev/null | head -n1) && \
-    if [ -n "\$CUDA_SO" ]; then echo "CUDA EP: \$(du -sh "\$CUDA_SO")"; else echo "CUDA EP: not present (CPU-only, expected on arm64)"; fi && \
+    if [ -n "\$CUDA_SO" ]; then \
+      echo "CUDA EP: \$(du -sh "\$CUDA_SO")"; \
+    elif [ "\$(uname -m)" = "x86_64" ]; then \
+      echo "WARNING: CUDA EP missing on x86_64 — postinstall may have failed"; \
+      echo "Checking npm postinstall logs..."; \
+      find /root/.npm/_logs -name '*.log' -newer /tmp/build-timestamp.txt -exec tail -20 {} \; 2>/dev/null || true; \
+    else \
+      echo "CUDA EP: not present (CPU-only, expected on \$(uname -m))"; \
+    fi && \
     echo "Installing Supergateway..." && \
     npm install -g ${SUPERGATEWAY_PKG} --omit=dev --no-audit --no-fund --loglevel error && \
     echo "Installing serve (static file server)..." && \

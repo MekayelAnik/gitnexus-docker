@@ -699,6 +699,9 @@ run_gitnexus_analyze() {
 
     # Run analyze as the same user that will run serve/mcp (node),
     # so the repo registry (~/.gitnexus/) is shared between all processes.
+    # Suppress MaxListenersExceededWarning — gitnexus analyze adds many drain
+    # listeners on stdout during concurrent file processing (harmless but noisy)
+    export NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--no-warnings"
     local run_cmd=()
     if [ "$(id -u)" -eq 0 ]; then
         run_cmd=(gosu node)
@@ -963,9 +966,20 @@ main() {
     if command -v nvidia-smi >/dev/null 2>&1; then
         echo "NVIDIA GPU detected:"
         nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader 2>/dev/null || echo "  (nvidia-smi available but query failed)"
+        # nvidia-container-toolkit injects CUDA libs at runtime but doesn't
+        # update ldconfig cache. GitNexus checks ldconfig -p for libcublasLt
+        # to decide whether CUDA is usable — refresh the cache so it finds them.
+        ldconfig 2>/dev/null || true
         if [[ -n "$cuda_so" ]]; then
             compute_mode="cuda"
             echo "CUDA Execution Provider: enabled ($(du -sh "$cuda_so" | cut -f1))"
+            # Verify CUDA runtime libs are discoverable (ldconfig sees nvidia-container-toolkit injected libs)
+            if ldconfig -p 2>/dev/null | grep -q 'libcublasLt.so.12'; then
+                echo "CUDA runtime libraries: found (libcublasLt.so.12)"
+            else
+                echo "WARNING: libcublasLt.so.12 not found in ldconfig — CUDA may fall back to CPU"
+                echo "  Hint: ensure the container is started with --gpus all"
+            fi
         else
             echo "CUDA Execution Provider: binaries not found — falling back to CPU"
         fi
@@ -1050,6 +1064,24 @@ main() {
     echo "GitNexus Repository Analysis Phase"
     echo "Data directory: ${DATA_DIR}"
     echo "=========================================="
+
+    # Patch: fix MaxListenersExceededWarning on relationship CSV WriteStreams.
+    # Dynamically-created per-pair WriteStreams in lbug-adapter.js default to 10
+    # listeners, which overflows on large repos. Add setMaxListeners(50) after
+    # each createWriteStream call — matching the pattern in csv-generator.js.
+    # Safe to re-run: sed only acts if the line hasn't been patched yet.
+    # Remove this patch once upstream gitnexus >= 1.7 ships the fix.
+    local _lbug_adapter
+    _lbug_adapter="$(npm root -g)/gitnexus/dist/core/lbug/lbug-adapter.js"
+    if [[ ! -f "$_lbug_adapter" ]]; then
+        # Fallback: npm pack layout used in some container variants
+        _lbug_adapter="/tmp/package/dist/core/lbug/lbug-adapter.js"
+    fi
+    if [[ -f "$_lbug_adapter" ]] && ! grep -q 'setMaxListeners' "$_lbug_adapter"; then
+        sed -i "s|ws = createWriteStream(pairCsvPath, 'utf-8');|ws = createWriteStream(pairCsvPath, 'utf-8');\n                ws.setMaxListeners(50);|" "$_lbug_adapter" && \
+            echo "Applied MaxListeners patch to lbug-adapter.js" || \
+            echo "Warning: MaxListeners patch failed (non-fatal)"
+    fi
 
     run_gitnexus_clean
     run_gitnexus_analyze "$DATA_DIR"

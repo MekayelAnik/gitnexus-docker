@@ -50,6 +50,16 @@ runs:
       if: inputs.do_checkout == 'true'
       uses: actions/checkout@v6
 
+    - name: Login registries (before buildx — GHCR credentials needed to pull BuildKit image)
+      if: inputs.login_dockerhub == 'true' || inputs.login_ghcr == 'true'
+      uses: ./.github/actions/registry-login
+      with:
+        dockerhub_username: ${{ inputs.dockerhub_username }}
+        dockerhub_token: ${{ inputs.dockerhub_token }}
+        ghcr_actor: ${{ inputs.ghcr_actor }}
+        ghcr_token: ${{ inputs.ghcr_token }}
+        push_to_dockerhub: ${{ inputs.login_dockerhub }}
+
     - name: Set up QEMU (all non-native — amd64 is native on GHA runners)
       if: inputs.setup_qemu == 'true'
       uses: docker/setup-qemu-action@v4
@@ -87,16 +97,6 @@ runs:
               keepBytes = 8000000000
           [registry."docker.io"]
             mirrors = ["mirror.gcr.io"]
-
-    - name: Login registries
-      if: inputs.login_dockerhub == 'true' || inputs.login_ghcr == 'true'
-      uses: ./.github/actions/registry-login
-      with:
-        dockerhub_username: ${{ inputs.dockerhub_username }}
-        dockerhub_token: ${{ inputs.dockerhub_token }}
-        ghcr_actor: ${{ inputs.ghcr_actor }}
-        ghcr_token: ${{ inputs.ghcr_token }}
-        push_to_dockerhub: ${{ inputs.login_dockerhub }}
         push_to_ghcr: ${{ inputs.login_ghcr }}
 
     - name: Install crane (API-efficient registry tool)

@@ -92,6 +92,8 @@ RUN apt-get update && \
     echo "Installing ${GITNEXUS_MCP_PKG}..." && \
     ONNXRUNTIME_NODE_INSTALL=true \
     npm install -g ${GITNEXUS_MCP_PKG} --omit=dev --no-audit --no-fund --loglevel warn && \
+    CUDA_SO=\$(find /usr/local/lib/node_modules -name 'libonnxruntime_providers_cuda.so' -type f 2>/dev/null | head -n1) && \
+    if [ -n "\$CUDA_SO" ]; then echo "CUDA EP: \$(du -sh "\$CUDA_SO")"; else echo "CUDA EP: not present (CPU-only, expected on arm64)"; fi && \
     echo "Installing Supergateway..." && \
     npm install -g ${SUPERGATEWAY_PKG} --omit=dev --no-audit --no-fund --loglevel error && \
     echo "Installing serve (static file server)..." && \

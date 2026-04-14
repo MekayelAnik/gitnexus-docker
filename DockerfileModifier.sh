@@ -71,6 +71,30 @@ RUN apt-get update && \
     bash haproxy gosu netcat-openbsd openssl ca-certificates iproute2 tzdata git wget procps && \
     rm -rf /var/lib/apt/lists/* /usr/share/doc /usr/share/man /usr/share/info /usr/share/locale /usr/share/lintian
 
+# CUDA 12.x runtime libraries for onnxruntime CUDA Execution Provider (x64 only).
+# These are the 7 shared libraries that libonnxruntime_providers_cuda.so links against.
+# nvidia-container-toolkit only injects driver-level libs (libcuda.so), NOT these.
+# On arm64 this is a no-op — skipped entirely.
+RUN if [ "\$(uname -m)" = "x86_64" ]; then \
+      apt-get update && \
+      DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        gnupg2 && \
+      wget -qO /tmp/cuda-keyring.deb \
+        https://developer.download.nvidia.com/compute/cuda/repos/debian12/x86_64/cuda-keyring_1.1-1_all.deb && \
+      dpkg -i /tmp/cuda-keyring.deb && rm -f /tmp/cuda-keyring.deb && \
+      apt-get update && \
+      DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        libcublas-12-9 \
+        libcufft-12-9 \
+        libcurand-12-9 \
+        cuda-cudart-12-9 \
+        libcudnn9-cuda-12 \
+        cuda-nvrtc-12-9 && \
+      ldconfig && \
+      apt-get purge -y gnupg2 && apt-get autoremove -y && \
+      rm -rf /var/lib/apt/lists/*; \
+    fi
+
 # HAProxy with native QUIC/H3 support from official image
 COPY --from=haproxy-src /usr/local/sbin/haproxy /usr/sbin/haproxy
 RUN mkdir -p /usr/local/sbin && ln -sf /usr/sbin/haproxy /usr/local/sbin/haproxy

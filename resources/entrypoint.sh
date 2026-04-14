@@ -699,12 +699,11 @@ run_gitnexus_analyze() {
 
     # Run analyze as the same user that will run serve/mcp (node),
     # so the repo registry (~/.gitnexus/) is shared between all processes.
-    # Increase max event listeners — gitnexus analyze adds many drain listeners
-    # on stdout during concurrent file processing, exceeding the default limit of 10.
-    # This is not a leak; it's expected concurrency. Set via Node.js preload script.
-    local max_listeners_script="/tmp/max-listeners.cjs"
-    echo "require('events').EventEmitter.defaultMaxListeners = 64;" > "$max_listeners_script"
-    export NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--require $max_listeners_script"
+    # Suppress MaxListenersExceededWarning — gitnexus analyze adds many drain
+    # listeners on stdout during concurrent file processing (not a leak).
+    # The preload approach (--require) doesn't survive the upstream execFileSync
+    # re-exec for heap management, so --no-warnings is the only reliable option.
+    export NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--no-warnings"
     local run_cmd=()
     if [ "$(id -u)" -eq 0 ]; then
         run_cmd=(gosu node)
@@ -969,19 +968,21 @@ main() {
     if command -v nvidia-smi >/dev/null 2>&1; then
         echo "NVIDIA GPU detected:"
         nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader 2>/dev/null || echo "  (nvidia-smi available but query failed)"
-        # nvidia-container-toolkit injects CUDA libs at runtime but doesn't
-        # update ldconfig cache. GitNexus checks ldconfig -p for libcublasLt
-        # to decide whether CUDA is usable — refresh the cache so it finds them.
+        # Register host-mounted CUDA libs (e.g., /usr/local/cuda/lib64) if present
+        if [[ -d "/usr/local/cuda/lib64" ]]; then
+            echo "/usr/local/cuda/lib64" > /etc/ld.so.conf.d/cuda-host.conf
+        fi
+        # Refresh ldconfig cache so isCudaAvailable() finds CUDA runtime libs
+        # (installed in image + any host-mounted or nvidia-container-toolkit injected)
         ldconfig 2>/dev/null || true
         if [[ -n "$cuda_so" ]]; then
             compute_mode="cuda"
             echo "CUDA Execution Provider: enabled ($(du -sh "$cuda_so" | cut -f1))"
-            # Verify CUDA runtime libs are discoverable (ldconfig sees nvidia-container-toolkit injected libs)
             if ldconfig -p 2>/dev/null | grep -q 'libcublasLt.so.12'; then
                 echo "CUDA runtime libraries: found (libcublasLt.so.12)"
             else
                 echo "WARNING: libcublasLt.so.12 not found in ldconfig — CUDA may fall back to CPU"
-                echo "  Hint: ensure the container is started with --gpus all"
+                echo "  Hint: ensure the image was built for x64 with CUDA libs"
             fi
         else
             echo "CUDA Execution Provider: binaries not found — falling back to CPU"

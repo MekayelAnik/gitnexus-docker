@@ -89,7 +89,7 @@ backend mcp_backend
 # Backend - GitNexus API server (gitnexus serve)
 backend web_api_backend
     balance roundrobin
-    server gitnexus-api 127.0.0.1:__WEB_UI_PORT__
+    server gitnexus-api [::1]:__WEB_UI_PORT__
 
 # Backend - Static frontend files (serve)
 backend web_static_backend

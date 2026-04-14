@@ -130,6 +130,10 @@ validate_web_auth() {
     WEB_PASSWORD="$(trim "$WEB_PASSWORD")"
 
     if [[ -z "$WEB_USERNAME" && -z "$WEB_PASSWORD" ]]; then
+        if [[ -n "${API_KEY:-}" ]]; then
+            echo "WARNING: API_KEY is set but WEB_USERNAME is not — Web UI and /api/* are unauthenticated." >&2
+            echo "  Set WEB_USERNAME and WEB_PASSWORD to protect browser access." >&2
+        fi
         export WEB_USERNAME="" WEB_PASSWORD=""
         return
     fi

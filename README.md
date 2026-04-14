@@ -179,7 +179,9 @@ services:
       - /path/to/your/repos:/data:rw
       - gitnexus-registry:/home/node/.gitnexus   # Persist index registry
       - gitnexus-cache:/home/node/.cache          # Persist embedding models
-      - /path/to/certs:/etc/haproxy/certs:ro   # TLS certificates
+      - /path/to/certs:/etc/haproxy/certs:ro      # TLS certificates
+      # GPU: mount host CUDA libs (remove if no GPU)
+      - /usr/local/cuda/lib64:/usr/local/cuda/lib64:ro
     environment:
       # Core
       - PORT=8010
@@ -209,14 +211,14 @@ services:
       - WIKI_MODEL=gpt-4o-mini
       # Web UI
       - ENABLE_WEB_UI=true
-    # NVIDIA GPU (optional - remove if no GPU)
+    # NVIDIA GPU (optional — remove if no GPU)
     deploy:
       resources:
         reservations:
           devices:
             - driver: nvidia
               count: all
-              capabilities: [compute, utility]
+              capabilities: [gpu, compute, utility]
     hostname: gitnexus-mcp
     domainname: local
 
@@ -240,6 +242,7 @@ docker run -d \
   -v gitnexus-registry:/home/node/.gitnexus \
   -v gitnexus-cache:/home/node/.cache \
   -v /path/to/certs:/etc/haproxy/certs:ro \
+  -v /usr/local/cuda/lib64:/usr/local/cuda/lib64:ro \
   -e PORT=8010 \
   -e PUID=1000 \
   -e PGID=1000 \
@@ -509,7 +512,30 @@ Supports cloud and local LLM providers via OpenAI-compatible API.
 
 ## GPU Support
 
-Uses onnxruntime-node for embeddings. **NVIDIA GPUs only.** Install [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html), use `deploy.resources.reservations.devices` in Compose or `--gpus all` in CLI. Falls back to CPU automatically.
+GPU-accelerated embeddings via onnxruntime CUDA EP. **NVIDIA x64 only.** Falls back to CPU on ARM64 or without CUDA.
+
+**Requirements:** NVIDIA driver + [Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) + CUDA toolkit on host.
+
+**Setup:** Mount host CUDA libs + enable GPU passthrough:
+
+```yaml
+# docker-compose.yml additions
+volumes:
+  - /usr/local/cuda/lib64:/usr/local/cuda/lib64:ro
+deploy:
+  resources:
+    reservations:
+      devices:
+        - driver: nvidia
+          count: all
+          capabilities: [gpu, compute, utility]
+```
+
+CLI: `docker run --gpus all -v /usr/local/cuda/lib64:/usr/local/cuda/lib64:ro ...`
+
+**Verify:** Look for `CUDA runtime libraries: found (libcublasLt.so.12)` in startup logs. If `not found`, try alternate host paths: `/usr/local/cuda-12/targets/x86_64-linux/lib` or `/usr/lib/x86_64-linux-gnu`.
+
+> The ONNX CUDA EP binary is in the image. Only host CUDA runtime libs (libcublas, libcufft, libcurand, libcudart, libcudnn, libnvrtc) need mounting.
 
 ---
 
@@ -558,61 +584,11 @@ Test with [MCP Inspector](https://github.com/modelcontextprotocol/inspector): `n
 
 ## Network Configuration
 
-| Network Mode | Complexity | Performance | Use Case |
-|:-------------|:----------:|:-----------:|:---------|
-| **Bridge** | Easy | Good | Default, isolated |
-| **Host** | Moderate | Excellent | Direct host access |
-| **MACVLAN** | Advanced | Excellent | Dedicated IP |
-
-### Bridge Network (Default)
-
-```yaml
-services:
-  gitnexus-mcp:
-    image: mekayelanik/gitnexus-mcp:latest
-    ports:
-      - "8010:8010"
-```
-
-**Benefits:** Isolation, easy setup, works everywhere.
-**Access:** `http://localhost:8010`
-
-### Host Network (Linux Only)
-
-```yaml
-services:
-  gitnexus-mcp:
-    image: mekayelanik/gitnexus-mcp:latest
-    network_mode: host
-```
-
-**Benefits:** Max performance, no NAT. Linux only, shares host namespace.
-**Access:** `http://localhost:8010`
-
-### MACVLAN Network (Advanced)
-
-```yaml
-services:
-  gitnexus-mcp:
-    image: mekayelanik/gitnexus-mcp:latest
-    mac_address: "AB:BC:CD:DE:EF:01"
-    networks:
-      macvlan-net:
-        ipv4_address: 192.168.1.100
-
-networks:
-  macvlan-net:
-    driver: macvlan
-    driver_opts:
-      parent: eth0
-    ipam:
-      config:
-        - subnet: 192.168.1.0/24
-          gateway: 192.168.1.1
-```
-
-**Benefits:** Dedicated IP, direct LAN access. Linux only, extra setup needed.
-**Access:** `http://192.168.1.100:8010`
+| Mode | Config | Use Case |
+|:-----|:-------|:---------|
+| **Bridge** | `ports: ["8010:8010"]` | Default, isolated |
+| **Host** | `network_mode: host` | Max performance (Linux) |
+| **MACVLAN** | Dedicated LAN IP via `macvlan` driver | Advanced, direct LAN |
 
 ---
 

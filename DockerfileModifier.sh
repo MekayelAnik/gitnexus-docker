@@ -71,27 +71,11 @@ RUN apt-get update && \
     bash haproxy gosu netcat-openbsd openssl ca-certificates iproute2 tzdata git wget procps && \
     rm -rf /var/lib/apt/lists/* /usr/share/doc /usr/share/man /usr/share/info /usr/share/locale /usr/share/lintian
 
-# CUDA 12.x runtime libraries for onnxruntime CUDA Execution Provider (x64 only).
-# These are the 7 shared libraries that libonnxruntime_providers_cuda.so links against.
-# nvidia-container-toolkit only injects driver-level libs (libcuda.so), NOT these.
-# On arm64 this is a no-op — skipped entirely.
-# Uses [trusted=yes] because Debian Trixie's Sequoia PGP (sqv) rejects NVIDIA's
-# GPG key signature — a known compatibility issue with all NVIDIA apt repos.
-RUN if [ "\$(uname -m)" = "x86_64" ]; then \
-      echo "deb [trusted=yes] https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/ /" \
-        > /etc/apt/sources.list.d/cuda.list && \
-      apt-get update && \
-      DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-        libcublas-12-9 \
-        libcufft-12-9 \
-        libcurand-12-9 \
-        cuda-cudart-12-9 \
-        libcudnn9-cuda-12 \
-        cuda-nvrtc-12-9 && \
-      ldconfig && \
-      rm -f /etc/apt/sources.list.d/cuda.list && \
-      rm -rf /var/lib/apt/lists/*; \
-    fi
+# CUDA runtime libraries are NOT baked into the image to keep it slim.
+# For GPU inference, mount the host's CUDA libs into the container:
+#   volumes:
+#     - /usr/local/cuda/lib64:/usr/local/cuda/lib64:ro
+# The entrypoint registers mounted paths with ldconfig automatically.
 
 # HAProxy with native QUIC/H3 support from official image
 COPY --from=haproxy-src /usr/local/sbin/haproxy /usr/sbin/haproxy

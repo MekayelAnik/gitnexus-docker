@@ -968,12 +968,20 @@ main() {
     if command -v nvidia-smi >/dev/null 2>&1; then
         echo "NVIDIA GPU detected:"
         nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader 2>/dev/null || echo "  (nvidia-smi available but query failed)"
-        # Register host-mounted CUDA libs (e.g., /usr/local/cuda/lib64) if present
-        if [[ -d "/usr/local/cuda/lib64" ]]; then
-            echo "/usr/local/cuda/lib64" > /etc/ld.so.conf.d/cuda-host.conf
-        fi
-        # Refresh ldconfig cache so isCudaAvailable() finds CUDA runtime libs
-        # (installed in image + any host-mounted or nvidia-container-toolkit injected)
+        # Register host-mounted CUDA libs with ldconfig so isCudaAvailable() finds them.
+        # Common mount paths: /usr/local/cuda/lib64, /usr/local/cuda-12/targets/x86_64-linux/lib
+        local cuda_conf="/etc/ld.so.conf.d/cuda-host.conf"
+        > "$cuda_conf"
+        for cuda_dir in \
+            /usr/local/cuda/lib64 \
+            /usr/local/cuda-12/targets/x86_64-linux/lib \
+            /usr/local/cuda/targets/x86_64-linux/lib \
+            /usr/lib/x86_64-linux-gnu; do
+            if [[ -d "$cuda_dir" ]] && ls "$cuda_dir"/libcublas*.so* >/dev/null 2>&1; then
+                echo "$cuda_dir" >> "$cuda_conf"
+                echo "  Registered CUDA lib path: $cuda_dir"
+            fi
+        done
         ldconfig 2>/dev/null || true
         if [[ -n "$cuda_so" ]]; then
             compute_mode="cuda"
@@ -982,7 +990,7 @@ main() {
                 echo "CUDA runtime libraries: found (libcublasLt.so.12)"
             else
                 echo "WARNING: libcublasLt.so.12 not found in ldconfig — CUDA may fall back to CPU"
-                echo "  Hint: ensure the image was built for x64 with CUDA libs"
+                echo "  Hint: mount host CUDA libs, e.g.: -v /usr/local/cuda/lib64:/usr/local/cuda/lib64:ro"
             fi
         else
             echo "CUDA Execution Provider: binaries not found — falling back to CPU"

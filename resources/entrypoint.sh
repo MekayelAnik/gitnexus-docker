@@ -540,13 +540,12 @@ generate_haproxy_config() {
     acl auth_valid var(txn.api_token) -m str ${escaped_key_sed}
 
     # Deny requests without valid authentication
-    # Bypass: localhost health checks, web UI static assets, read-only API (GET /api/*)
-    # Write API (POST/DELETE /api/*) and MCP (/mcp) always require auth
+    # Bypass: localhost health checks, web UI static assets, Web UI API (/api/*)
+    # /api/* is the Web UI backend — exempt from API_KEY (protected by WEB_USERNAME if set)
+    # MCP (/mcp) always requires API_KEY auth
     http-request deny deny_status 401 content-type \"application/json\" string '{\"error\":\"Unauthorized\",\"message\":\"Valid API key required\"}' if !is_health_check !is_web_ui !is_api_path !auth_header_present
-    http-request deny deny_status 401 content-type \"application/json\" string '{\"error\":\"Unauthorized\",\"message\":\"Valid API key required\"}' if is_api_path !METH_GET !auth_header_present
     http-request deny deny_status 401 content-type \"application/json\" string '{\"error\":\"Unauthorized\",\"message\":\"Valid API key required\"}' if is_health_check !is_localhost !auth_header_present
     http-request deny deny_status 403 content-type \"application/json\" string '{\"error\":\"Forbidden\",\"message\":\"Invalid API key\"}' if !is_health_check !is_web_ui !is_api_path auth_header_present !auth_valid
-    http-request deny deny_status 403 content-type \"application/json\" string '{\"error\":\"Forbidden\",\"message\":\"Invalid API key\"}' if is_api_path !METH_GET auth_header_present !auth_valid
     http-request deny deny_status 403 content-type \"application/json\" string '{\"error\":\"Forbidden\",\"message\":\"Invalid API key\"}' if is_health_check !is_localhost auth_header_present !auth_valid"
     else
         api_key_check="    # API Key authentication disabled - all requests allowed"

@@ -670,38 +670,37 @@ run_gitnexus_analyze() {
         return
     fi
 
-    local analyze_args=()
-
-    if is_true "${ANALYZE_FORCE:-false}"; then
-        if [[ -f "$ANALYZE_FORCE_DONE_FILE" ]]; then
-            echo "Force analysis already completed this container lifecycle, skipping --force"
-        else
-            analyze_args+=("--force")
-        fi
-    fi
-
     # Cache supported flags (once per entrypoint run)
     local help_text
     help_text="$(gitnexus analyze --help 2>&1 || true)"
 
-    if is_true "${ANALYZE_SKILLS:-false}" && echo "$help_text" | grep -q -- '--skills'; then
-        analyze_args+=("--skills")
-    fi
-
-    if is_true "${ANALYZE_EMBEDDINGS:-false}" && echo "$help_text" | grep -q -- '--embeddings'; then
-        analyze_args+=("--embeddings")
-    fi
-
+    # Build base args (shared across all phases)
+    local base_args=()
     if is_true "${ANALYZE_SKIP_GIT:-false}" && echo "$help_text" | grep -q -- '--skip-git'; then
-        analyze_args+=("--skip-git")
+        base_args+=("--skip-git")
     fi
-
     if is_true "${ANALYZE_VERBOSE:-false}" && echo "$help_text" | grep -q -- '--verbose'; then
-        analyze_args+=("--verbose")
+        base_args+=("--verbose")
     fi
 
-    # Run analyze as the same user that will run serve/mcp (node),
-    # so the repo registry (~/.gitnexus/) is shared between all processes.
+    # Determine which phases to run
+    local do_force=false
+    if is_true "${ANALYZE_FORCE:-false}"; then
+        if [[ -f "$ANALYZE_FORCE_DONE_FILE" ]]; then
+            echo "Force analysis already completed this container lifecycle, skipping --force"
+        else
+            do_force=true
+        fi
+    fi
+    local do_embeddings=false
+    if is_true "${ANALYZE_EMBEDDINGS:-false}" && echo "$help_text" | grep -q -- '--embeddings'; then
+        do_embeddings=true
+    fi
+    local do_skills=false
+    if is_true "${ANALYZE_SKILLS:-false}" && echo "$help_text" | grep -q -- '--skills'; then
+        do_skills=true
+    fi
+
     # Suppress MaxListenersExceededWarning — gitnexus analyze adds many drain
     # listeners on stdout during concurrent file processing (not a leak).
     # The preload approach (--require) doesn't survive the upstream execFileSync
@@ -718,18 +717,14 @@ run_gitnexus_analyze() {
             found_repos=1
             echo "Analyzing repository: ${repo_dir}"
             # Pre-flight: verify the effective user can read the repo contents.
-            # When root, run_cmd=(gosu node) so we test as the node user.
-            # When already node, run_cmd=() so we test directly.
             local test_cmd=("${run_cmd[@]}")
             local can_read=false
             if [[ ${#test_cmd[@]} -gt 0 ]]; then
-                # Running as root — test as node user via gosu
                 if "${test_cmd[@]}" test -r "${repo_dir}.git/HEAD" 2>/dev/null || \
                    "${test_cmd[@]}" test -r "${repo_dir}.gitignore" 2>/dev/null; then
                     can_read=true
                 fi
             else
-                # Running as node user directly
                 if [[ -r "${repo_dir}.git/HEAD" ]] || [[ -r "${repo_dir}.gitignore" ]]; then
                     can_read=true
                 fi
@@ -740,18 +735,50 @@ run_gitnexus_analyze() {
                 echo "  Skipping analysis for this repository"
                 continue
             fi
-            (cd "$repo_dir" && "${run_cmd[@]}" gitnexus analyze "${analyze_args[@]}" 2>&1) || \
-                echo "Warning: gitnexus analyze failed for ${repo_dir}"
+
+            # Phase 1: Code graph (heaviest — parses files, builds graph)
+            local phase1_args=("${base_args[@]}")
+            [[ "$do_force" == "true" ]] && phase1_args+=("--force")
+            echo "  Phase 1: Building code graph..."
+            (cd "$repo_dir" && "${run_cmd[@]}" gitnexus analyze "${phase1_args[@]}" 2>&1) || {
+                echo "Warning: gitnexus analyze (graph) failed for ${repo_dir}"
+                continue
+            }
+
+            # Phase 2: Embeddings (GPU-accelerated, uses cached graph)
+            # Must run separately — combining with --skills crashes upstream
+            if [[ "$do_embeddings" == "true" ]]; then
+                echo "  Phase 2: Generating embeddings..."
+                (cd "$repo_dir" && "${run_cmd[@]}" gitnexus analyze --embeddings "${base_args[@]}" 2>&1) || \
+                    echo "Warning: gitnexus analyze (embeddings) failed for ${repo_dir}"
+            fi
+
+            # Phase 3: Skills (uses cached graph, generates skill files)
+            if [[ "$do_skills" == "true" ]]; then
+                echo "  Phase 3: Generating skills..."
+                (cd "$repo_dir" && "${run_cmd[@]}" gitnexus analyze --skills "${base_args[@]}" 2>&1) || \
+                    echo "Warning: gitnexus analyze (skills) failed for ${repo_dir}"
+            fi
         fi
     done
 
     if [[ "$found_repos" -eq 0 ]]; then
         echo "No subdirectories found in ${data_dir}. Analyzing root data directory..."
-        (cd "$data_dir" && "${run_cmd[@]}" gitnexus analyze "${analyze_args[@]}" 2>&1) || \
-            echo "Warning: gitnexus analyze failed for ${data_dir}"
+        local phase1_args=("${base_args[@]}")
+        [[ "$do_force" == "true" ]] && phase1_args+=("--force")
+        (cd "$data_dir" && "${run_cmd[@]}" gitnexus analyze "${phase1_args[@]}" 2>&1) || \
+            echo "Warning: gitnexus analyze (graph) failed for ${data_dir}"
+        if [[ "$do_embeddings" == "true" ]]; then
+            (cd "$data_dir" && "${run_cmd[@]}" gitnexus analyze --embeddings "${base_args[@]}" 2>&1) || \
+                echo "Warning: gitnexus analyze (embeddings) failed for ${data_dir}"
+        fi
+        if [[ "$do_skills" == "true" ]]; then
+            (cd "$data_dir" && "${run_cmd[@]}" gitnexus analyze --skills "${base_args[@]}" 2>&1) || \
+                echo "Warning: gitnexus analyze (skills) failed for ${data_dir}"
+        fi
     fi
 
-    if is_true "${ANALYZE_FORCE:-false}" && [[ ! -f "$ANALYZE_FORCE_DONE_FILE" ]]; then
+    if [[ "$do_force" == "true" ]] && [[ ! -f "$ANALYZE_FORCE_DONE_FILE" ]]; then
         touch "$ANALYZE_FORCE_DONE_FILE"
     fi
 }

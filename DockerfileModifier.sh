@@ -75,11 +75,11 @@ RUN apt-get update && \
 # These are the 7 shared libraries that libonnxruntime_providers_cuda.so links against.
 # nvidia-container-toolkit only injects driver-level libs (libcuda.so), NOT these.
 # On arm64 this is a no-op — skipped entirely.
-# Uses ubuntu2404 repo (compatible with Debian Trixie, avoids Sequoia PGP key issues).
+# Uses [trusted=yes] because Debian Trixie's Sequoia PGP (sqv) rejects NVIDIA's
+# GPG key signature — a known compatibility issue with all NVIDIA apt repos.
 RUN if [ "\$(uname -m)" = "x86_64" ]; then \
-      wget -qO /tmp/cuda-keyring.deb \
-        https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb && \
-      dpkg -i /tmp/cuda-keyring.deb && rm -f /tmp/cuda-keyring.deb && \
+      echo "deb [trusted=yes] https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/ /" \
+        > /etc/apt/sources.list.d/cuda.list && \
       apt-get update && \
       DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         libcublas-12-9 \
@@ -89,6 +89,7 @@ RUN if [ "\$(uname -m)" = "x86_64" ]; then \
         libcudnn9-cuda-12 \
         cuda-nvrtc-12-9 && \
       ldconfig && \
+      rm -f /etc/apt/sources.list.d/cuda.list && \
       rm -rf /var/lib/apt/lists/*; \
     fi
 

@@ -674,16 +674,7 @@ run_gitnexus_analyze() {
     local help_text
     help_text="$(gitnexus analyze --help 2>&1 || true)"
 
-    # Build base args (shared across all phases)
-    local base_args=()
-    if is_true "${ANALYZE_SKIP_GIT:-false}" && echo "$help_text" | grep -q -- '--skip-git'; then
-        base_args+=("--skip-git")
-    fi
-    if is_true "${ANALYZE_VERBOSE:-false}" && echo "$help_text" | grep -q -- '--verbose'; then
-        base_args+=("--verbose")
-    fi
-
-    # Determine which phases to run
+    # Determine which phases to run (decided first so base_args can react)
     local do_force=false
     if is_true "${ANALYZE_FORCE:-false}"; then
         if [[ -f "$ANALYZE_FORCE_DONE_FILE" ]]; then
@@ -699,6 +690,22 @@ run_gitnexus_analyze() {
     local do_skills=false
     if is_true "${ANALYZE_SKILLS:-false}" && echo "$help_text" | grep -q -- '--skills'; then
         do_skills=true
+    fi
+
+    # Build base args (shared across all phases)
+    local base_args=()
+    if is_true "${ANALYZE_SKIP_GIT:-false}" && echo "$help_text" | grep -q -- '--skip-git'; then
+        base_args+=("--skip-git")
+    fi
+    if is_true "${ANALYZE_VERBOSE:-false}" && echo "$help_text" | grep -q -- '--verbose'; then
+        # Upstream --verbose renders progress bars via ANSI cursor control
+        # that trigger non-zero exit (and truncate skill generation) when
+        # combined with --embeddings or --skills. Drop it in that case.
+        if [[ "$do_embeddings" == "true" || "$do_skills" == "true" ]]; then
+            echo "Note: ANALYZE_VERBOSE ignored because ANALYZE_EMBEDDINGS/ANALYZE_SKILLS is set (upstream incompatibility)"
+        else
+            base_args+=("--verbose")
+        fi
     fi
 
     # Suppress MaxListenersExceededWarning — gitnexus analyze adds many drain
@@ -737,44 +744,79 @@ run_gitnexus_analyze() {
             fi
 
             # Phase 1: Code graph (heaviest — parses files, builds graph)
-            local phase1_args=("${base_args[@]}")
-            [[ "$do_force" == "true" ]] && phase1_args+=("--force")
-            echo "  Phase 1: Building code graph..."
-            (cd "$repo_dir" && "${run_cmd[@]}" gitnexus analyze "${phase1_args[@]}" 2>&1) || {
-                echo "Warning: gitnexus analyze (graph) failed for ${repo_dir}"
+            local analyze_args=("${base_args[@]}")
+            [[ "$do_force" == "true" ]] && analyze_args+=("--force")
+            [[ "$do_embeddings" == "true" ]] && analyze_args+=("--embeddings")
+            [[ "$do_skills" == "true" ]] && analyze_args+=("--skills")
+
+            # Single combined call. Splitting phases causes upstream to report
+            # "Already up to date" on the second invocation (commit hash match),
+            # silently skipping --embeddings/--skills work. Verified v1.6.1:
+            # combined --embeddings --skills produces both without crashing.
+            local phase_desc="code graph"
+            [[ "$do_embeddings" == "true" ]] && phase_desc="${phase_desc} + embeddings"
+            [[ "$do_skills" == "true" ]] && phase_desc="${phase_desc} + skills"
+            echo "  Analyzing (${phase_desc})..."
+            local meta_file="${repo_dir}.gitnexus/meta.json"
+            local before_ts=0
+            [[ -f "$meta_file" ]] && before_ts=$(stat -c %Y "$meta_file" 2>/dev/null || echo 0)
+            # Upstream gitnexus analyze truncates skill generation (~7/20) and
+            # exits rc=1 when stdout is non-TTY (the default under `docker run -d`).
+            # Wrap in script(1) to allocate a pseudo-TTY so full output is produced.
+            # Temporarily clear EXIT/INT/TERM traps — script(1) propagates signal
+            # state to its child, and the outer shutdown trap causes upstream to
+            # exit rc=1 after ~7 skills.
+            set +e
+            trap - EXIT INT TERM
+            (cd "$repo_dir" && script --flush -q -e -c "$(printf '%q ' "${run_cmd[@]}" gitnexus analyze "${analyze_args[@]}")" /dev/null 2>&1)
+            local analyze_rc=$?
+            trap shutdown EXIT INT TERM
+            set -e
+            # Upstream sometimes exits non-zero in --verbose mode despite completing
+            # successfully. Trust meta.json freshness as the real success signal.
+            if [[ -f "$meta_file" ]]; then
+                local after_ts
+                after_ts=$(stat -c %Y "$meta_file" 2>/dev/null || echo 0)
+                if [[ "$after_ts" -gt "$before_ts" ]]; then
+                    [[ "$analyze_rc" -ne 0 ]] && \
+                        echo "  (gitnexus exited rc=${analyze_rc} but meta.json updated — treating as success)"
+                else
+                    echo "Warning: gitnexus analyze did not refresh meta.json for ${repo_dir} (rc=${analyze_rc})"
+                    continue
+                fi
+            else
+                echo "Warning: gitnexus analyze failed for ${repo_dir} (rc=${analyze_rc}, no meta.json)"
                 continue
-            }
-
-            # Phase 2: Embeddings (GPU-accelerated, uses cached graph)
-            # Must run separately — combining with --skills crashes upstream
-            if [[ "$do_embeddings" == "true" ]]; then
-                echo "  Phase 2: Generating embeddings..."
-                (cd "$repo_dir" && "${run_cmd[@]}" gitnexus analyze --embeddings "${base_args[@]}" 2>&1) || \
-                    echo "Warning: gitnexus analyze (embeddings) failed for ${repo_dir}"
-            fi
-
-            # Phase 3: Skills (uses cached graph, generates skill files)
-            if [[ "$do_skills" == "true" ]]; then
-                echo "  Phase 3: Generating skills..."
-                (cd "$repo_dir" && "${run_cmd[@]}" gitnexus analyze --skills "${base_args[@]}" 2>&1) || \
-                    echo "Warning: gitnexus analyze (skills) failed for ${repo_dir}"
             fi
         fi
     done
 
     if [[ "$found_repos" -eq 0 ]]; then
         echo "No subdirectories found in ${data_dir}. Analyzing root data directory..."
-        local phase1_args=("${base_args[@]}")
-        [[ "$do_force" == "true" ]] && phase1_args+=("--force")
-        (cd "$data_dir" && "${run_cmd[@]}" gitnexus analyze "${phase1_args[@]}" 2>&1) || \
-            echo "Warning: gitnexus analyze (graph) failed for ${data_dir}"
-        if [[ "$do_embeddings" == "true" ]]; then
-            (cd "$data_dir" && "${run_cmd[@]}" gitnexus analyze --embeddings "${base_args[@]}" 2>&1) || \
-                echo "Warning: gitnexus analyze (embeddings) failed for ${data_dir}"
-        fi
-        if [[ "$do_skills" == "true" ]]; then
-            (cd "$data_dir" && "${run_cmd[@]}" gitnexus analyze --skills "${base_args[@]}" 2>&1) || \
-                echo "Warning: gitnexus analyze (skills) failed for ${data_dir}"
+        local analyze_args=("${base_args[@]}")
+        [[ "$do_force" == "true" ]] && analyze_args+=("--force")
+        [[ "$do_embeddings" == "true" ]] && analyze_args+=("--embeddings")
+        [[ "$do_skills" == "true" ]] && analyze_args+=("--skills")
+        local meta_file="${data_dir}/.gitnexus/meta.json"
+        local before_ts=0
+        [[ -f "$meta_file" ]] && before_ts=$(stat -c %Y "$meta_file" 2>/dev/null || echo 0)
+        set +e
+        trap - EXIT INT TERM
+        (cd "$data_dir" && script --flush -q -e -c "$(printf '%q ' "${run_cmd[@]}" gitnexus analyze "${analyze_args[@]}")" /dev/null 2>&1)
+        local analyze_rc=$?
+        trap shutdown EXIT INT TERM
+        set -e
+        if [[ -f "$meta_file" ]]; then
+            local after_ts
+            after_ts=$(stat -c %Y "$meta_file" 2>/dev/null || echo 0)
+            if [[ "$after_ts" -gt "$before_ts" ]]; then
+                [[ "$analyze_rc" -ne 0 ]] && \
+                    echo "  (gitnexus exited rc=${analyze_rc} but meta.json updated — treating as success)"
+            else
+                echo "Warning: gitnexus analyze did not refresh meta.json for ${data_dir} (rc=${analyze_rc})"
+            fi
+        else
+            echo "Warning: gitnexus analyze failed for ${data_dir} (rc=${analyze_rc}, no meta.json)"
         fi
     fi
 
@@ -1108,21 +1150,35 @@ main() {
     echo "=========================================="
 
     # Patch: fix MaxListenersExceededWarning on relationship CSV WriteStreams.
-    # Dynamically-created per-pair WriteStreams in lbug-adapter.js default to 10
-    # listeners, which overflows on large repos. Add setMaxListeners(50) after
-    # each createWriteStream call — matching the pattern in csv-generator.js.
-    # Safe to re-run: sed only acts if the line hasn't been patched yet.
-    # Remove this patch once upstream gitnexus >= 1.7 ships the fix.
+    # Without a waitingForDrain guard, each backpressure event on the same
+    # WriteStream adds another once('drain') listener. The guard ensures only
+    # one drain listener per stream at a time, eliminating the warning entirely.
+    # Safe to re-run: node script only acts if the file hasn't been patched yet.
+    # Remove this patch once upstream gitnexus ships the fix (PR #818).
     local _lbug_adapter
     _lbug_adapter="$(npm root -g)/gitnexus/dist/core/lbug/lbug-adapter.js"
     if [[ ! -f "$_lbug_adapter" ]]; then
-        # Fallback: npm pack layout used in some container variants
         _lbug_adapter="/tmp/package/dist/core/lbug/lbug-adapter.js"
     fi
-    if [[ -f "$_lbug_adapter" ]] && ! grep -q 'setMaxListeners' "$_lbug_adapter"; then
-        sed -i "s|ws = createWriteStream(pairCsvPath, 'utf-8');|ws = createWriteStream(pairCsvPath, 'utf-8');\n                ws.setMaxListeners(50);|" "$_lbug_adapter" && \
-            echo "Applied MaxListeners patch to lbug-adapter.js" || \
-            echo "Warning: MaxListeners patch failed (non-fatal)"
+    if [[ -f "$_lbug_adapter" ]] && ! grep -q 'waitingForDrain' "$_lbug_adapter"; then
+        node -e "
+const fs = require('fs');
+let c = fs.readFileSync('${_lbug_adapter}', 'utf-8');
+// 1. Add waitingForDrain Set before the Promise block
+c = c.replace(
+  'await new Promise((resolve, reject) => {\\n        const rl = createInterface({',
+  'const waitingForDrain = new Set();\\n    await new Promise((resolve, reject) => {\\n        const rl = createInterface({'
+);
+// 2. Remove setMaxListeners(50) if present
+c = c.replace(/\\n\\s*ws\\.setMaxListeners\\(50\\);/, '');
+// 3. Replace backpressure block with guarded version
+c = c.replace(
+  \`if (!ok) {\\n                rl.pause();\\n                ws.once('drain', () => rl.resume());\\n            }\`,
+  \`if (!ok && !waitingForDrain.has(pairKey)) {\\n                waitingForDrain.add(pairKey);\\n                rl.pause();\\n                ws.once('drain', () => {\\n                    waitingForDrain.delete(pairKey);\\n                    rl.resume();\\n                });\\n            }\`
+);
+fs.writeFileSync('${_lbug_adapter}', c);
+" && echo "Applied waitingForDrain patch to lbug-adapter.js" || \
+            echo "Warning: waitingForDrain patch failed (non-fatal)"
     fi
 
     run_gitnexus_clean

@@ -30,12 +30,19 @@ services:
     ports:
       - "8010:8010"
     volumes:
-      # Mount your repository directories for code analysis
-      # Each subdirectory becomes an indexable repository
-      - /path/to/your/repos:/data:ro
-      # Example: mount individual repos
-      # - /home/user/my-project:/data/my-project:ro
-      # - /home/user/another-repo:/data/another-repo:ro
+      # Mount your repository directories for code analysis.
+      # Each subdirectory becomes an indexable repository.
+      #
+      # IMPORTANT: drop the :ro flag if you enable ANALYZE_EMBEDDINGS or
+      # ANALYZE_SKILLS. Embeddings write to <repo>/.gitnexus/lbug
+      # (LadybugDB); skills write .claude/, CLAUDE.md, AGENTS.md.
+      # A :ro mount will cause both features to fail silently or log
+      # "Read-only file system" errors.
+      - /path/to/your/repos:/data
+      # Example: mount individual repos (keep :ro only if you have NEITHER
+      # ANALYZE_EMBEDDINGS=true NOR ANALYZE_SKILLS=true)
+      # - /home/user/my-project:/data/my-project
+      # - /home/user/another-repo:/data/another-repo
       # Persistent storage for GitNexus registry (repo metadata)
       - gitnexus-registry:/home/node/.gitnexus
       # Persistent cache for HuggingFace models, ONNX runtime, etc.

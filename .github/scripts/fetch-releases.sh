@@ -28,7 +28,7 @@ if [[ -n "$MANUAL_VERSIONS_RAW" && "$IS_RANGE" == "false" && ("$REQUESTED_ACTION
             | tr ',' '\n' \
             | sed 's/^ *//; s/ *$//' \
             | sed '/^$/d' \
-            | grep -Evi '(beta|canary)' \
+            | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' \
             | head -n "$MAX_VERSIONS"
     } || true)"
 
@@ -85,7 +85,7 @@ elif [[ "$IS_RANGE" == "true" || "$REQUESTED_ACTION" == "build-range" ]]; then
     fi
 
     # Get all stable versions, filter to those within the range (inclusive)
-    ALL_STABLE="$(jq -r '.versions | keys[]' npm-package.json | grep -Evi '(beta|canary)' | sort -V)"
+    ALL_STABLE="$(jq -r '.versions | keys[]' npm-package.json | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V)"
 
     VERSIONS_NEWEST="$({
         while IFS= read -r ver; do
@@ -138,7 +138,7 @@ else
 
     VERSIONS_NEWEST="$({
         jq -r '.versions | keys[]' npm-package.json \
-            | grep -Evi '(beta|canary)' \
+            | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' \
             | sort -Vr \
             | head -n "$MAX_VERSIONS"
     } || true)"
@@ -154,7 +154,7 @@ else
     if [[ -n "$DIST_TAG_LATEST" ]] && echo "$VERSIONS_NEWEST" | grep -qx "$DIST_TAG_LATEST"; then
         LATEST_VERSION="$DIST_TAG_LATEST"
     else
-        LATEST_VERSION="$(echo "$VERSIONS_NEWEST" | head -n1)"
+        LATEST_VERSION="$(echo "$VERSIONS_NEWEST" | sort -Vr | head -n1)"
     fi
 fi
 

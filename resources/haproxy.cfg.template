@@ -21,7 +21,7 @@ __RATE_LIMIT_TABLE__
 
 # Frontend - receives all incoming requests
 frontend mcp_frontend
-    bind *:__SERVER_PORT__ __BIND_PARAMS__
+    bind *:__SERVER_PORT__ __BIND_PARAMS__ __FRONTEND_MAXCONN__
     __QUIC_BIND_LINE__
 
     # Define ACL for health check endpoint from localhost
@@ -82,9 +82,12 @@ frontend mcp_frontend
     default_backend web_static_backend
 
 # Backend - Supergateway MCP server
+# balance hdr(Mcp-Session-Id) keeps requests for the same MCP session pinned to
+# the same backend (no-op with one backend, future-proof for multi-replica).
 backend mcp_backend
-    balance roundrobin
-    server __SERVER_NAME__ 127.0.0.1:__INTERNAL_PORT__ check
+    balance hdr(Mcp-Session-Id)
+    hash-type consistent
+    server __SERVER_NAME__ 127.0.0.1:__INTERNAL_PORT__ check __SERVER_MAXCONN__
 
 # Backend - GitNexus API server (gitnexus serve)
 backend web_api_backend

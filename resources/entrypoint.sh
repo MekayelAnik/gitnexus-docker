@@ -591,6 +591,21 @@ generate_haproxy_config() {
     escaped_bind_params="$(escape_sed_replacement "$BIND_PARAMS")"
     escaped_quic_bind_line="$(escape_sed_replacement "$QUIC_BIND_LINE")"
 
+    # Concurrency caps. Bound HAProxy-level acceptance so a burst cannot trigger
+    # unbounded upstream supergateway child spawns. Empty = no cap.
+    local frontend_maxconn_clause=""
+    local server_maxconn_clause=""
+    if [[ "${HAPROXY_FRONTEND_MAXCONN:-0}" =~ ^[1-9][0-9]*$ ]]; then
+        frontend_maxconn_clause="maxconn ${HAPROXY_FRONTEND_MAXCONN}"
+    fi
+    if [[ "${HAPROXY_SERVER_MAXCONN:-0}" =~ ^[1-9][0-9]*$ ]]; then
+        server_maxconn_clause="maxconn ${HAPROXY_SERVER_MAXCONN}"
+    fi
+    local escaped_frontend_maxconn
+    local escaped_server_maxconn
+    escaped_frontend_maxconn="$(escape_sed_replacement "$frontend_maxconn_clause")"
+    escaped_server_maxconn="$(escape_sed_replacement "$server_maxconn_clause")"
+
     sed -e "s|__SERVER_PORT__|${PORT}|g" \
         -e "s|__BIND_PARAMS__|${escaped_bind_params}|g" \
         -e "s|__QUIC_BIND_LINE__|${escaped_quic_bind_line}|g" \
@@ -600,6 +615,8 @@ generate_haproxy_config() {
         -e "s|__SERVER_NAME__|${HAPROXY_SERVER_NAME}|g" \
         -e "s|__CORS_PREFLIGHT_CONDITION__|${cors_preflight_condition}|g" \
         -e "s|__CORS_RESPONSE_CONDITION__|${cors_response_condition}|g" \
+        -e "s|__FRONTEND_MAXCONN__|${escaped_frontend_maxconn}|g" \
+        -e "s|__SERVER_MAXCONN__|${escaped_server_maxconn}|g" \
         "$HAPROXY_TEMPLATE" > "${HAPROXY_CONFIG}.tmp"
 
     awk -v replacement="$api_key_check" -v replacement_cors="$cors_check" \
@@ -871,10 +888,36 @@ run_gitnexus_wiki() {
 start_mcp_server() {
     local mcp_server_cmd="gitnexus mcp"
 
+    # Supergateway session/lifecycle controls. Stateful SHTTP reuses one stdio
+    # child per Mcp-Session-Id, avoiding the spawn-per-request memory leak in
+    # stateless mode (supergateway issue #108).
+    SUPERGATEWAY_STATEFUL="${SUPERGATEWAY_STATEFUL:-true}"
+    SUPERGATEWAY_SESSION_TIMEOUT="${SUPERGATEWAY_SESSION_TIMEOUT:-3600000}"
+    # Cap virtual memory of each gitnexus stdio child (MiB; 0 disables).
+    GITNEXUS_MAX_MEM_MB="${GITNEXUS_MAX_MEM_MB:-0}"
+
+    # Wrap child with prlimit to cap virtual memory if requested
+    if [[ "${GITNEXUS_MAX_MEM_MB}" =~ ^[1-9][0-9]*$ ]] && command -v prlimit >/dev/null 2>&1; then
+        local mem_bytes=$((GITNEXUS_MAX_MEM_MB * 1024 * 1024))
+        mcp_server_cmd="prlimit --as=${mem_bytes} -- ${mcp_server_cmd}"
+        echo "GitNexus MCP child memory cap: ${GITNEXUS_MAX_MEM_MB} MiB (prlimit --as)"
+    fi
+
+    # Stateful flags only valid for stdio->StreamableHttp; ignored for SSE/WS.
+    local stateful_args=()
+    if [[ "${SUPERGATEWAY_STATEFUL,,}" == "true" ]]; then
+        stateful_args+=(--stateful)
+        if [[ "${SUPERGATEWAY_SESSION_TIMEOUT}" =~ ^[1-9][0-9]*$ ]]; then
+            stateful_args+=(--sessionTimeout "${SUPERGATEWAY_SESSION_TIMEOUT}")
+        fi
+    fi
+    local stateful_tag=""
+    [[ ${#stateful_args[@]} -gt 0 ]] && stateful_tag=" (stateful, timeout=${SUPERGATEWAY_SESSION_TIMEOUT}ms)"
+
     case "${PROTOCOL^^}" in
         SHTTP|STREAMABLEHTTP)
-            CMD_ARGS=(npx --yes supergateway --port "$INTERNAL_PORT" --streamableHttpPath /mcp --outputTransport streamableHttp --healthEndpoint /healthz --stdio "$mcp_server_cmd")
-            PROTOCOL_DISPLAY="SHTTP/streamableHttp"
+            CMD_ARGS=(npx --yes supergateway --port "$INTERNAL_PORT" --streamableHttpPath /mcp --outputTransport streamableHttp --healthEndpoint /healthz "${stateful_args[@]}" --stdio "$mcp_server_cmd")
+            PROTOCOL_DISPLAY="SHTTP/streamableHttp${stateful_tag}"
             ;;
         SSE)
             CMD_ARGS=(npx --yes supergateway --port "$INTERNAL_PORT" --ssePath /sse --outputTransport sse --healthEndpoint /healthz --stdio "$mcp_server_cmd")
@@ -886,8 +929,8 @@ start_mcp_server() {
             ;;
         *)
             echo "Invalid PROTOCOL='${PROTOCOL}', using default ${DEFAULT_PROTOCOL}"
-            CMD_ARGS=(npx --yes supergateway --port "$INTERNAL_PORT" --streamableHttpPath /mcp --outputTransport streamableHttp --healthEndpoint /healthz --stdio "$mcp_server_cmd")
-            PROTOCOL_DISPLAY="SHTTP/streamableHttp"
+            CMD_ARGS=(npx --yes supergateway --port "$INTERNAL_PORT" --streamableHttpPath /mcp --outputTransport streamableHttp --healthEndpoint /healthz "${stateful_args[@]}" --stdio "$mcp_server_cmd")
+            PROTOCOL_DISPLAY="SHTTP/streamableHttp${stateful_tag}"
             ;;
     esac
 

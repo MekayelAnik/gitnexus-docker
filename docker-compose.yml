@@ -13,6 +13,16 @@ services:
       - ENABLE_HTTPS=false
       - HTTP_VERSION_MODE=auto
       - DATA_DIR=/data
+      # Supergateway session lifecycle (stateful reuses one stdio child per
+      # Mcp-Session-Id, avoiding the spawn-per-request memory leak in stateless
+      # mode — see supergateway issue #108).
+      - SUPERGATEWAY_STATEFUL=true
+      - SUPERGATEWAY_SESSION_TIMEOUT=3600000
+      # Cap virtual memory of each GitNexus stdio child (MiB; 0 disables)
+      - GITNEXUS_MAX_MEM_MB=4096
+      # HAProxy concurrency caps (0 disables)
+      - HAPROXY_FRONTEND_MAXCONN=64
+      - HAPROXY_SERVER_MAXCONN=16
       # Analysis features
       - ANALYZE_SKILLS=true
       - ANALYZE_EMBEDDINGS=true

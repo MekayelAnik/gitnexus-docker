@@ -18,8 +18,16 @@ services:
       # client explicitly closes them (no server-side TTL). Set to "true" only
       # if full per-request isolation is required (memory-hostile).
       - MCP_PROXY_STATELESS=false
-      # Cap virtual memory of each GitNexus stdio child (MiB; 0 disables)
-      - GITNEXUS_MAX_MEM_MB=4096
+      # Cap virtual memory of each GitNexus stdio child via prlimit --as
+      # (MiB; 0 disables). KEEP AT 0 unless you know what you are doing:
+      # LadybugDB (the embedded graph backend) mmaps a ~16 GiB virtual
+      # address space at startup. Any cap below 16384 will fail with
+      # "Buffer manager exception: Mmap for size 17179869184 failed" and
+      # every DB-backed tool (query, cypher, context, route_map, impact,
+      # rename, shape_check, api_impact, detect_changes) will return
+      # "LadybugDB unavailable". Resident memory stays low — only the
+      # virtual reservation is huge.
+      - GITNEXUS_MAX_MEM_MB=0
       # HAProxy concurrency caps (0 disables)
       - HAPROXY_FRONTEND_MAXCONN=64
       - HAPROXY_SERVER_MAXCONN=16

@@ -362,10 +362,10 @@ With `ENABLE_HTTPS=true`, use TLS endpoints:
 |:---------|:-------:|:----------------|:------------|
 | `PORT` | `8010` | `1`-`65535` | External HAProxy port (MCP + Web UI + API) |
 | `PROTOCOL` | `SHTTP` | `SHTTP`, `SSE` | MCP transport (WS unsupported by mcp-proxy) |
-| `MCP_PROXY_STATELESS` | `false` | `true`, `false` | `false`=shared child, no TTL; `true`=per-request isolation (memory-hostile) |
-| `GITNEXUS_MAX_MEM_MB` | `0` | `0`-`N` | `prlimit --as` MiB cap per stdio child (0=off) |
-| `HAPROXY_FRONTEND_MAXCONN` | `0` | `0`-`N` | HAProxy frontend max concurrent conns (0=off) |
-| `HAPROXY_SERVER_MAXCONN` | `0` | `0`-`N` | HAProxy→mcp-proxy max concurrent conns (0=off) |
+| `MCP_PROXY_STATELESS` | `false` | `true`,`false` | `false`=shared child no TTL; `true`=per-request isolation |
+| `GITNEXUS_MAX_MEM_MB` | `0` | `0` or `>=16384` | `prlimit --as` MiB cap. LadybugDB mmaps ~16 GiB virtual; lower caps break DB tools |
+| `HAPROXY_FRONTEND_MAXCONN` | `0` | `0`-`N` | HAProxy frontend max conns (0=off) |
+| `HAPROXY_SERVER_MAXCONN` | `0` | `0`-`N` | HAProxy→mcp-proxy max conns (0=off) |
 
 > **Internal ports** (`INTERNAL_PORT=38011`, `WEB_UI_PORT=4747`) are used by HAProxy; change only for in-container port conflicts. Static file server port (`39012`) is fixed.
 

@@ -47,12 +47,12 @@
 
 ## Overview
 
-[GitNexus](https://github.com/abhigyanpatwari/GitNexus) is a code intelligence MCP server that builds a knowledge graph using LadybugDB, indexes repos with Tree-sitter, generates embeddings, creates wiki docs, and provides AI-powered code search. This image packages it for deployment with HAProxy, supporting multiple transports, API key auth, CORS, and HTTP/1.1, HTTP/2, HTTP/3 (QUIC).
+[GitNexus](https://github.com/abhigyanpatwari/GitNexus) is a code intelligence MCP server: knowledge graph (LadybugDB), Tree-sitter indexing, embeddings, wiki docs, AI code search. Packaged with HAProxy + mcp-proxy bridge — API key auth, CORS, HTTP/1.1, HTTP/2, HTTP/3 (QUIC).
 
 ### Key Features
 
 - **Multi-Architecture** - Native x86-64 and ARM64
-- **Multiple Transports** - Streamable HTTP, SSE, and WebSocket (selectable via env var)
+- **Modern MCP Bridge** - [mcp-proxy](https://github.com/sparfenyuk/mcp-proxy) stdio↔SHTTP/SSE; stateful, no spawn-per-request leak
 - **Auto-Analysis** - Indexes all repos in the data directory on startup
 - **Self-Hosted Web UI** - Built-in interface on the same port as MCP
 - **Wiki Generation** - AI-powered wiki via OpenAI, Ollama, vLLM, or compatible API
@@ -322,7 +322,6 @@ All services are accessible on a **single port** (default `8010`) via HAProxy:
 | **Web UI** | `http://host-ip:8010/` | GitNexus web interface |
 | **MCP (SHTTP)** | `http://host-ip:8010/mcp` | Streamable HTTP (recommended) |
 | **MCP (SSE)** | `http://host-ip:8010/sse` | Server-Sent Events |
-| **MCP (WS)** | `ws://host-ip:8010/message` | WebSocket |
 | **REST API** | `http://host-ip:8010/api/*` | REST API (repos, search, graph) |
 | **Health** | `http://host-ip:8010/healthz` | Health check |
 
@@ -333,9 +332,8 @@ With `ENABLE_HTTPS=true`, use TLS endpoints:
 | **Web UI** | `https://host-ip:8010/` |
 | **MCP (SHTTP)** | `https://host-ip:8010/mcp` |
 | **MCP (SSE)** | `https://host-ip:8010/sse` |
-| **MCP (WS)** | `wss://host-ip:8010/message` |
 
-> **Single-Port Architecture:** HAProxy routes `/mcp`, `/healthz` to Supergateway; `/api/*` to GitNexus API; `/*` to web UI. Set `ENABLE_WEB_UI=false` for MCP-only mode.
+> **Single-Port Architecture:** HAProxy routes `/mcp`,`/sse`→mcp-proxy, `/api/*`→GitNexus API, `/*`→web UI; `/healthz` answered locally. Set `ENABLE_WEB_UI=false` for MCP-only.
 
 > **Smart Healthcheck:** Reports healthy during analysis/wiki phases to avoid false unhealthy status.
 
@@ -363,7 +361,11 @@ With `ENABLE_HTTPS=true`, use TLS endpoints:
 | Variable | Default | Possible Values | Description |
 |:---------|:-------:|:----------------|:------------|
 | `PORT` | `8010` | `1`-`65535` | External HAProxy port (MCP + Web UI + API) |
-| `PROTOCOL` | `SHTTP` | `SHTTP`, `SSE`, `WS` | MCP transport protocol |
+| `PROTOCOL` | `SHTTP` | `SHTTP`, `SSE` | MCP transport (WS unsupported by mcp-proxy) |
+| `MCP_PROXY_STATELESS` | `false` | `true`, `false` | `false`=shared child, no TTL; `true`=per-request isolation (memory-hostile) |
+| `GITNEXUS_MAX_MEM_MB` | `0` | `0`-`N` | `prlimit --as` MiB cap per stdio child (0=off) |
+| `HAPROXY_FRONTEND_MAXCONN` | `0` | `0`-`N` | HAProxy frontend max concurrent conns (0=off) |
+| `HAPROXY_SERVER_MAXCONN` | `0` | `0`-`N` | HAProxy→mcp-proxy max concurrent conns (0=off) |
 
 > **Internal ports** (`INTERNAL_PORT=38011`, `WEB_UI_PORT=4747`) are used by HAProxy; change only for in-container port conflicts. Static file server port (`39012`) is fixed.
 
@@ -543,14 +545,14 @@ CLI: `docker run --gpus all -v /usr/local/cuda/lib64:/usr/local/cuda/lib64:ro ..
 
 ### Transport Support
 
-| Client | SHTTP | SSE | WebSocket | Recommended |
-|:-------|:-----:|:---:|:---------:|:------------|
-| **VS Code (Cline/Roo-Cline)** | Yes | Yes | No | SHTTP |
-| **Claude Desktop** | Yes | Yes | Experimental | SHTTP |
-| **Claude CLI** | Yes | Yes | Experimental | SHTTP |
-| **Codex CLI** | Yes | Yes | Experimental | SHTTP |
-| **Codeium (Windsurf)** | Yes | Yes | Experimental | SHTTP |
-| **Cursor** | Yes | Yes | Experimental | SHTTP |
+| Client | SHTTP | SSE | Recommended |
+|:-------|:-----:|:---:|:------------|
+| **VS Code (Cline/Roo-Cline)** | Yes | Yes | SHTTP |
+| **Claude Desktop** | Yes | Yes | SHTTP |
+| **Claude CLI** | Yes | Yes | SHTTP |
+| **Codex CLI** | Yes | Yes | SHTTP |
+| **Codeium (Windsurf)** | Yes | Yes | SHTTP |
+| **Cursor** | Yes | Yes | SHTTP |
 
 ---
 

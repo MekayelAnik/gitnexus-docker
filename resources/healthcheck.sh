@@ -13,6 +13,7 @@ if ! nc -z 127.0.0.1 "${PORT:-8010}" >/dev/null 2>&1; then
     exit 0
 fi
 
-# HAProxy is up — check the actual Supergateway /healthz endpoint
+# HAProxy is up — /healthz is answered locally by HAProxy (mcp-proxy has no
+# configurable health endpoint), so this always returns 200 once HAProxy is up.
 SCHEME=$([ "$ENABLE_HTTPS" = "true" ] && echo https || echo http)
 exec wget -q --spider --no-check-certificate "${SCHEME}://127.0.0.1:${PORT:-8010}/healthz"

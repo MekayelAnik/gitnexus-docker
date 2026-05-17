@@ -6,7 +6,11 @@ BASE_IMAGE=$(cat ./build_data/base-image 2>/dev/null || echo "node:22-trixie-sli
 HAPROXY_IMAGE=$(cat ./build_data/haproxy-image 2>/dev/null || echo "haproxy:lts")
 GITNEXUS_VERSION=$(cat ./build_data/version 2>/dev/null || exit 1)
 GITNEXUS_MCP_PKG="gitnexus@${GITNEXUS_VERSION}"
-SUPERGATEWAY_PKG='supergateway@latest'
+# mcp-proxy: stdio<->StreamableHTTP/SSE bridge. Replaces supergateway.
+# Stateful by default (one stdio child per Mcp-Session-Id, reused across
+# requests) — avoids the spawn-per-request memory leak that affected
+# supergateway in stateless mode (supercorp-ai/supergateway#108).
+MCP_PROXY_PKG=$(cat ./build_data/mcp_proxy_version 2>/dev/null || echo "mcp-proxy")
 DOCKERFILE_NAME="Dockerfile.$REPO_NAME"
 
 # Create a temporary file safely
@@ -66,9 +70,11 @@ RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/banner.sh /usr/local/bi
     && ls -la /etc/haproxy/haproxy.cfg.template
 
 # Install runtime packages (keep apt haproxy for shared libraries, binary replaced below)
+# python3 + pip stay at runtime to host the mcp-proxy stdio<->HTTP bridge.
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    bash haproxy gosu netcat-openbsd openssl ca-certificates iproute2 tzdata git wget procps && \
+    bash haproxy gosu netcat-openbsd openssl ca-certificates iproute2 tzdata git wget procps \
+    python3 python3-pip python3-venv && \
     rm -rf /var/lib/apt/lists/* /usr/share/doc /usr/share/man /usr/share/info /usr/share/locale /usr/share/lintian
 
 # CUDA runtime libraries are NOT baked into the image to keep it slim.
@@ -92,9 +98,10 @@ RUN mkdir -p /data /state && chown node:node /data /state
 # At runtime, GPU is auto-detected: CUDA EP if --gpus all, otherwise CPU fallback.
 # ONNXRUNTIME_NODE_INSTALL forces the postinstall to download CUDA binaries on linux/x64.
 # On linux/arm64 the postinstall has no CUDA manifest and exits cleanly (CPU-only).
-RUN apt-get update && \
+RUN --mount=type=cache,target=/root/.cache/pip \
+    apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    python3 make g++ binutils && \
+    make g++ binutils && \
     echo "Installing ${GITNEXUS_MCP_PKG}..." && \
     ONNXRUNTIME_NODE_INSTALL=true \
     npm install -g ${GITNEXUS_MCP_PKG} --omit=dev --no-audit --no-fund --loglevel warn && \
@@ -108,13 +115,14 @@ RUN apt-get update && \
     else \
       echo "CUDA EP: not present (CPU-only, expected on \$(uname -m))"; \
     fi && \
-    echo "Installing Supergateway..." && \
-    npm install -g ${SUPERGATEWAY_PKG} --omit=dev --no-audit --no-fund --loglevel error && \
+    echo "Installing mcp-proxy (replaces supergateway)..." && \
+    pip install --no-cache-dir --break-system-packages ${MCP_PROXY_PKG} && \
+    mcp-proxy --version || true && \
     echo "Installing serve (static file server)..." && \
     npm install -g serve@latest --omit=dev --no-audit --no-fund --loglevel error && \
     bash /usr/local/bin/optimize.sh && \
     rm -f /usr/local/bin/optimize.sh && \
-    apt-get purge -y python3 make g++ binutils && \
+    apt-get purge -y make g++ binutils && \
     apt-get autoremove -y && \
     rm -rf /var/lib/apt/lists/* /var/cache/apt/* /usr/share/doc /usr/share/man /usr/share/info /usr/share/locale /usr/share/lintian /var/log/*.log
 

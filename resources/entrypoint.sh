@@ -591,8 +591,8 @@ generate_haproxy_config() {
     escaped_bind_params="$(escape_sed_replacement "$BIND_PARAMS")"
     escaped_quic_bind_line="$(escape_sed_replacement "$QUIC_BIND_LINE")"
 
-    # Concurrency caps. Bound HAProxy-level acceptance so a burst cannot trigger
-    # unbounded upstream supergateway child spawns. Empty = no cap.
+    # Concurrency caps. Bound HAProxy-level acceptance so a burst cannot
+    # trigger unbounded upstream mcp-proxy child reuse / spawn. Empty = no cap.
     local frontend_maxconn_clause=""
     local server_maxconn_clause=""
     if [[ "${HAPROXY_FRONTEND_MAXCONN:-0}" =~ ^[1-9][0-9]*$ ]]; then
@@ -886,55 +886,76 @@ run_gitnexus_wiki() {
 }
 
 start_mcp_server() {
-    local mcp_server_cmd="gitnexus mcp"
-
-    # Supergateway session/lifecycle controls. Stateful SHTTP reuses one stdio
-    # child per Mcp-Session-Id, avoiding the spawn-per-request memory leak in
-    # stateless mode (supergateway issue #108).
-    SUPERGATEWAY_STATEFUL="${SUPERGATEWAY_STATEFUL:-true}"
-    SUPERGATEWAY_SESSION_TIMEOUT="${SUPERGATEWAY_SESSION_TIMEOUT:-3600000}"
+    # mcp-proxy session model: stateful by default — one stdio child per
+    # Mcp-Session-Id, reused across requests. Sessions persist until the client
+    # explicitly closes them (no server-side TTL). Set MCP_PROXY_STATELESS=true
+    # only when full per-request isolation is required (memory-hostile).
+    MCP_PROXY_STATELESS="${MCP_PROXY_STATELESS:-false}"
     # Cap virtual memory of each gitnexus stdio child (MiB; 0 disables).
     GITNEXUS_MAX_MEM_MB="${GITNEXUS_MAX_MEM_MB:-0}"
 
-    # Wrap child with prlimit to cap virtual memory if requested
+    # mcp-proxy receives the stdio command as positional args after `--`,
+    # so prlimit can prefix the argv list directly.
+    local gitnexus_argv=(gitnexus mcp)
     if [[ "${GITNEXUS_MAX_MEM_MB}" =~ ^[1-9][0-9]*$ ]] && command -v prlimit >/dev/null 2>&1; then
         local mem_bytes=$((GITNEXUS_MAX_MEM_MB * 1024 * 1024))
-        mcp_server_cmd="prlimit --as=${mem_bytes} -- ${mcp_server_cmd}"
+        gitnexus_argv=(prlimit "--as=${mem_bytes}" -- "${gitnexus_argv[@]}")
         echo "GitNexus MCP child memory cap: ${GITNEXUS_MAX_MEM_MB} MiB (prlimit --as)"
     fi
 
-    # Stateful flags only valid for stdio->StreamableHttp; ignored for SSE/WS.
-    local stateful_args=()
-    if [[ "${SUPERGATEWAY_STATEFUL,,}" == "true" ]]; then
-        stateful_args+=(--stateful)
-        if [[ "${SUPERGATEWAY_SESSION_TIMEOUT}" =~ ^[1-9][0-9]*$ ]]; then
-            stateful_args+=(--sessionTimeout "${SUPERGATEWAY_SESSION_TIMEOUT}")
-        fi
+    # Build mcp-proxy CORS args. CORS env may be comma-separated origins or "*".
+    local cors_args=()
+    if [[ -n "${CORS:-}" ]]; then
+        local origin
+        for origin in ${CORS//,/ }; do
+            cors_args+=(--allow-origin "$origin")
+        done
     fi
-    local stateful_tag=""
-    [[ ${#stateful_args[@]} -gt 0 ]] && stateful_tag=" (stateful, timeout=${SUPERGATEWAY_SESSION_TIMEOUT}ms)"
+    cors_args+=(--expose-header Mcp-Session-Id)
+
+    local stateless_args=()
+    if [[ "${MCP_PROXY_STATELESS,,}" == "true" ]]; then
+        stateless_args+=(--stateless)
+    else
+        stateless_args+=(--no-stateless)
+    fi
+
+    local mode_tag="stateful"
+    [[ "${MCP_PROXY_STATELESS,,}" == "true" ]] && mode_tag="stateless"
 
     case "${PROTOCOL^^}" in
-        SHTTP|STREAMABLEHTTP)
-            CMD_ARGS=(npx --yes supergateway --port "$INTERNAL_PORT" --streamableHttpPath /mcp --outputTransport streamableHttp --healthEndpoint /healthz "${stateful_args[@]}" --stdio "$mcp_server_cmd")
-            PROTOCOL_DISPLAY="SHTTP/streamableHttp${stateful_tag}"
-            ;;
-        SSE)
-            CMD_ARGS=(npx --yes supergateway --port "$INTERNAL_PORT" --ssePath /sse --outputTransport sse --healthEndpoint /healthz --stdio "$mcp_server_cmd")
-            PROTOCOL_DISPLAY="SSE/Server-Sent Events"
+        SHTTP|STREAMABLEHTTP|SSE)
+            # mcp-proxy exposes /mcp (StreamableHTTP) and /sse simultaneously.
+            CMD_ARGS=(mcp-proxy
+                --host 127.0.0.1
+                --port "$INTERNAL_PORT"
+                --pass-environment
+                "${stateless_args[@]}"
+                "${cors_args[@]}"
+                --
+                "${gitnexus_argv[@]}")
+            PROTOCOL_DISPLAY="mcp-proxy: /mcp (StreamableHTTP) + /sse (${mode_tag})"
             ;;
         WS|WEBSOCKET)
-            CMD_ARGS=(npx --yes supergateway --port "$INTERNAL_PORT" --messagePath /message --outputTransport ws --healthEndpoint /healthz --stdio "$mcp_server_cmd")
-            PROTOCOL_DISPLAY="WS/WebSocket"
+            echo "ERROR: WebSocket transport is not supported by mcp-proxy." >&2
+            echo "       Use PROTOCOL=SHTTP or PROTOCOL=SSE instead." >&2
+            return 1
             ;;
         *)
-            echo "Invalid PROTOCOL='${PROTOCOL}', using default ${DEFAULT_PROTOCOL}"
-            CMD_ARGS=(npx --yes supergateway --port "$INTERNAL_PORT" --streamableHttpPath /mcp --outputTransport streamableHttp --healthEndpoint /healthz "${stateful_args[@]}" --stdio "$mcp_server_cmd")
-            PROTOCOL_DISPLAY="SHTTP/streamableHttp${stateful_tag}"
+            echo "Invalid PROTOCOL='${PROTOCOL}', defaulting to ${DEFAULT_PROTOCOL}"
+            CMD_ARGS=(mcp-proxy
+                --host 127.0.0.1
+                --port "$INTERNAL_PORT"
+                --pass-environment
+                "${stateless_args[@]}"
+                "${cors_args[@]}"
+                --
+                "${gitnexus_argv[@]}")
+            PROTOCOL_DISPLAY="mcp-proxy: /mcp (StreamableHTTP) + /sse (${mode_tag})"
             ;;
     esac
 
-    echo "Launching GitNexus MCP with protocol: ${PROTOCOL_DISPLAY}"
+    echo "Launching GitNexus MCP via ${PROTOCOL_DISPLAY}"
 
     if [ "$(id -u)" -eq 0 ]; then
         gosu node "${CMD_ARGS[@]}" &
@@ -1137,7 +1158,8 @@ main() {
     chown "${PUID}:${PGID}" /home/node/.cache 2>/dev/null || true
     export XDG_CACHE_HOME="/home/node/.cache"
 
-    # npm cache — npx/supergateway runs as node, must not fall back to /root/.npm
+    # npm cache — `gitnexus` CLI + `npx serve` run as node, must not fall back
+    # to /root/.npm (mcp-proxy itself is pure Python and doesn't use npm).
     mkdir -p /home/node/.npm
     chown -R "${PUID}:${PGID}" /home/node/.npm 2>/dev/null || true
     export npm_config_cache="/home/node/.npm"

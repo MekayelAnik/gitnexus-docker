@@ -77,7 +77,7 @@
 | Tag | Stability | Description | Use Case |
 |:----|:---------:|:------------|:---------|
 | `latest` | Production | Latest stable release | **Recommended for production** |
-| `1.6.6` | Production | Specific version | Version pinning for consistency |
+| `1.6.7` | Production | Specific version | Version pinning for consistency |
 
 ### System Requirements
 

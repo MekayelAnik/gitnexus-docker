@@ -117,7 +117,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     fi && \
     echo "Installing mcp-proxy (replaces supergateway)..." && \
     pip install --no-cache-dir --break-system-packages ${MCP_PROXY_PKG} && \
-    mcp-proxy --version || true && \
+    mcp-proxy --version && \
     echo "Installing serve (static file server)..." && \
     npm install -g serve@latest --omit=dev --no-audit --no-fund --loglevel error && \
     bash /usr/local/bin/optimize.sh && \
